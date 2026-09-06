@@ -25,9 +25,17 @@ from transformers import (
 import onnx
 from onnxruntime.quantization import quantize_dynamic, QuantType
 
-LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDR", "I-ADDR"]
+LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDRESS", "I-ADDRESS"]
 ID2LABEL = {i: label for i, label in enumerate(LABEL_LIST)}
-LABEL2ID = {label: i for i, label in enumerate(LABEL_LIST)}
+LABEL2ID = {
+    "O": 0,
+    "B-NAME": 1,
+    "I-NAME": 2,
+    "B-ADDRESS": 3,
+    "I-ADDRESS": 4,
+    "B-ADDR": 3,
+    "I-ADDR": 4
+}
 
 BASE_MODEL = "nreimers/MiniLM-L6-H384-uncased"
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output_model")
@@ -151,9 +159,10 @@ def export_to_onnx(pytorch_model_dir, onnx_dir):
     size_mb = os.path.getsize(quantized_onnx_path) / (1024 * 1024)
     print(f"[OK] Quantized Model ready: {quantized_onnx_path} ({size_mb:.1f} MB)")
 
-    # Save tokenizer assets into onnx_dir so it can be dropped straight into public/models/
+    # Save model config and tokenizer assets into onnx_dir so it can be dropped straight into public/models/
+    model.config.save_pretrained(onnx_dir)
     tokenizer.save_pretrained(onnx_dir)
-    print("[OK] Tokenizer configuration saved into onnx folder.")
+    print("[OK] Model config & Tokenizer configuration saved into onnx folder.")
 
 def main():
     data_dir = os.path.join(os.path.dirname(__file__), "data")

@@ -4,17 +4,17 @@ import { getAssetUrl } from '../utils/assetHelper.js';
 // Configure transformers.js to load locally with persistent browser caching and graceful CDN fallback
 env.allowLocalModels = true;
 env.allowRemoteModels = true;
-env.useBrowserCache = true;
+env.useBrowserCache = typeof window !== 'undefined';
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
 const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN)\b/i;
 
 let cachedNERPipeline = null;
-export const activeNEREngineName = 'Local Xenova BERT-NER (Offline WASM) + Regex';
+export const activeNEREngineName = 'Local Fine-Tuned MiniLM-L6 (Offline WASM) + Regex';
 
 export async function getNERPipeline(onProgress = null) {
   if (!cachedNERPipeline) {
-    const localModelPath = getAssetUrl('models/Xenova');
+    const localModelPath = typeof window === 'undefined' ? './public/models/Xenova' : getAssetUrl('models/Xenova');
     let loaded = false;
 
     // 1. Pre-flight check: verify local quantized ONNX binary exists and is not a 404 HTML page or LFS pointer
@@ -200,7 +200,7 @@ export const REGEX_RULES = [
 // --- 2. CONTEXTUAL ADDRESS & BIRTHPLACE HEADERS ---
 const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
 const BIRTH_HEADER_REGEX = /(?:Place of Birth):\s*([^\n*#]+)/gi;
-const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:\s+[A-Z]{2,})+)/gi;
+const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
 
 // --- 3. UPGRADED COMPREHENSIVE ADDRESS VOCABULARIES ---
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -292,7 +292,7 @@ const UPGRADED_ADDRESS_PATTERNS = [
   /\b[ABCEGHJ-NPRSTVXY]\d[A-Z][ -]?\d[A-Z]\d\b/g,         
   /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,  
   /\b[1-9]\d{2}\s?\d{3}\b/g,                              
-  /\b\d{5}(?:-\d{4})?\b/g,                                
+  /(?<![#\-\d])\b\d{5}(?:-\d{4})?\b(?![#\-\d])/g,                                
 
   // K. GPS Coordinates
   /[-+]?\d{1,2}\.\d{4,}\s*°?\s*[NSns]?\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?/g,
@@ -315,7 +315,7 @@ function extractNERSpans(rawResults, line) {
     const isSubword = token.word.startsWith('##');
     const tagType = token.entity.replace(/^[BI]-/, '');
 
-    const minScore = 0.80; 
+    const minScore = 0.70; 
     if (token.score < minScore) continue;
 
     if (current && (isSubword || (token.entity.startsWith('I-') && current.type === tagType))) {
@@ -329,23 +329,26 @@ function extractNERSpans(rawResults, line) {
 
   const spans = [];
   let searchIdx = 0;
+  const lineLower = line.toLowerCase();
 
   for (const ent of entities) {
-    if (ent.type !== 'PER' && ent.type !== 'LOC') continue;
+    const isName = ent.type === 'PER' || ent.type === 'NAME';
+    const isAddress = ent.type === 'LOC' || ent.type === 'ADDRESS' || ent.type === 'ADDR';
+    if (!isName && !isAddress) continue;
 
-    const firstClean = ent.tokens[0].word.replace(/^##/, '');
-    const lastClean = ent.tokens[ent.tokens.length - 1].word.replace(/^##/, '');
+    const firstClean = ent.tokens[0].word.replace(/^##/, '').toLowerCase();
+    const lastClean = ent.tokens[ent.tokens.length - 1].word.replace(/^##/, '').toLowerCase();
 
-    const firstIdx = line.indexOf(firstClean, searchIdx);
+    const firstIdx = lineLower.indexOf(firstClean, searchIdx);
     if (firstIdx === -1) continue;
 
-    let lastIdx = line.indexOf(lastClean, firstIdx);
+    let lastIdx = lineLower.indexOf(lastClean, firstIdx);
     if (lastIdx === -1) lastIdx = firstIdx;
     let endIdx = lastIdx + lastClean.length;
 
-    if (ent.type === 'PER') {
+    if (isName) {
       const remainder = line.substring(endIdx);
-      const hyphenMatch = remainder.match(/^-[A-Z][a-zA-Z]+/);
+      const hyphenMatch = remainder.match(/^-[A-Za-z]+/);
       if (hyphenMatch) {
         endIdx += hyphenMatch[0].length;
       }
@@ -367,7 +370,7 @@ function extractNERSpans(rawResults, line) {
     }
 
     spans.push({
-      tag: ent.type === 'PER' ? 'NAME' : 'LOCATION',
+      tag: isName ? 'NAME' : 'ADDRESS',
       text: extractedText,
       start: firstIdx,
       end: endIdx
@@ -447,7 +450,7 @@ export async function redactTextContent(rawText, onProgress = null) {
     }
   }
 
-  // --- PHASE 4: Semantic NER (Xenova BERT-NER) for Names & Locations ---
+  // --- PHASE 4: Semantic NER (MiniLM-L6) for Names & Locations ---
   const lines = rawText.split('\n');
   let lineOffset = 0;
 
@@ -457,7 +460,6 @@ export async function redactTextContent(rawText, onProgress = null) {
       trimmed.length > 0 &&
       !trimmed.startsWith('---') &&
       !trimmed.startsWith('###') &&
-      /[A-Z]/.test(trimmed) &&
       !SKIP_PATTERNS.test(trimmed)
     ) {
       const rawEnts = await ner(line);

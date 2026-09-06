@@ -11,21 +11,23 @@ import os
 import time
 import numpy as np
 import onnxruntime as ort
-from transformers import AutoTokenizer
+from tokenizers import Tokenizer
 
 ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
 MODEL_PATH = os.path.join(ONNX_DIR, "model_quantized.onnx")
+TOKENIZER_PATH = os.path.join(ONNX_DIR, "tokenizer.json")
 
 LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDR", "I-ADDR"]
 ID2LABEL = {i: label for i, label in enumerate(LABEL_LIST)}
 
 def test_model():
     if not os.path.exists(MODEL_PATH):
-        print(f"[!] Model not found at {MODEL_PATH}. Please run train_pii_model.py first.")
+        print(f"[!] Model not found at {MODEL_PATH}.")
         return
 
     print(f"Loading Quantized Model from {MODEL_PATH}...")
-    tokenizer = AutoTokenizer.from_pretrained(ONNX_DIR)
+    tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
+    tokenizer.no_padding()
     session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 
     test_sentences = [
@@ -43,13 +45,13 @@ def test_model():
     ]
 
     print("\n" + "="*70)
-    print("RUNNING INFERENCE BENCHMARKS")
+    print("RUNNING INFERENCE BENCHMARKS (Fine-Tuned MiniLM-L6 INT8 ONNX)")
     print("="*70)
 
     for text in test_sentences:
-        inputs = tokenizer(text, return_tensors="np")
-        input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
+        encoding = tokenizer.encode(text)
+        input_ids = np.array([encoding.ids], dtype=np.int64)
+        attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
 
         t0 = time.perf_counter()
         outputs = session.run(None, {
@@ -60,11 +62,9 @@ def test_model():
 
         logits = outputs[0][0]
         preds = np.argmax(logits, axis=-1)
-        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        tokens = encoding.tokens
 
         entities = []
-        current_entity = None
-
         for token, pred in zip(tokens, preds):
             tag = ID2LABEL[pred]
             if tag != "O":

@@ -2,8 +2,8 @@ import { getNERPipeline, resetNERPipeline } from './piiDetector.js';
 import { loadFaceDetector, resetFaceDetector } from './faceDetector.js';
 import { getPaddleOCR, resetPaddleOCR } from './ocrService.js';
 
-// Total expected weights payload in MB across YuNet, PaddleOCR, and Xenova BERT-NER
-export const TOTAL_MODELS_SIZE_MB = 118.2;
+// Total expected weights payload in MB across YuNet (~1.5MB), PaddleOCR (~4.5MB), and MiniLM-L6 (~23.4MB)
+export const TOTAL_MODELS_SIZE_MB = 29.4;
 
 /**
  * Checks client browser storage usage via Navigator Storage & Cache API.
