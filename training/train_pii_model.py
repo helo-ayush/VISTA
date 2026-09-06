@@ -109,19 +109,35 @@ def export_to_onnx(pytorch_model_dir, onnx_dir):
     raw_onnx_path = os.path.join(onnx_dir, "model.onnx")
     quantized_onnx_path = os.path.join(onnx_dir, "model_quantized.onnx")
 
-    torch.onnx.export(
-        model,
-        (dummy_input["input_ids"], dummy_input["attention_mask"]),
-        raw_onnx_path,
-        input_names=["input_ids", "attention_mask"],
-        output_names=["logits"],
-        dynamic_axes={
-            "input_ids": {0: "batch_size", 1: "sequence_length"},
-            "attention_mask": {0: "batch_size", 1: "sequence_length"},
-            "logits": {0: "batch_size", 1: "sequence_length"}
-        },
-        opset_version=14
-    )
+    try:
+        torch.onnx.export(
+            model,
+            (dummy_input["input_ids"], dummy_input["attention_mask"]),
+            raw_onnx_path,
+            input_names=["input_ids", "attention_mask"],
+            output_names=["logits"],
+            dynamic_axes={
+                "input_ids": {0: "batch_size", 1: "sequence_length"},
+                "attention_mask": {0: "batch_size", 1: "sequence_length"},
+                "logits": {0: "batch_size", 1: "sequence_length"}
+            },
+            opset_version=14,
+            dynamo=False
+        )
+    except (TypeError, Exception):
+        torch.onnx.export(
+            model,
+            (dummy_input["input_ids"], dummy_input["attention_mask"]),
+            raw_onnx_path,
+            input_names=["input_ids", "attention_mask"],
+            output_names=["logits"],
+            dynamic_axes={
+                "input_ids": {0: "batch_size", 1: "sequence_length"},
+                "attention_mask": {0: "batch_size", 1: "sequence_length"},
+                "logits": {0: "batch_size", 1: "sequence_length"}
+            },
+            opset_version=14
+        )
     print(f"[OK] Base ONNX model exported to: {raw_onnx_path}")
 
     # Apply dynamic INT8 quantization for browser WASM speed
