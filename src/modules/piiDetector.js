@@ -480,6 +480,15 @@ export async function redactTextContent(rawText, onProgress = null) {
       merged.push({ ...r });
     } else {
       const last = merged[merged.length - 1];
+      if (r.start < last.end) {
+        // Spans overlap directly - merge boundary
+        last.end = Math.max(last.end, r.end);
+        if (last.tag === 'LOCATION' || r.tag === 'ADDRESS') {
+          last.tag = 'ADDRESS';
+        }
+        continue;
+      }
+
       const gap = rawText.substring(last.end, r.start);
       const isCleanSeparator = /^[,\s.\n\r\t-]*$/.test(gap);
       
