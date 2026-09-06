@@ -1,4 +1,5 @@
 import { pipeline, env } from '@huggingface/transformers';
+import { getAssetUrl } from '../utils/assetHelper.js';
 
 // Configure transformers.js to load 100% locally from /models/Xenova (Offline WASM with Cache API persistence)
 env.allowLocalModels = true;
@@ -13,7 +14,8 @@ export const activeNEREngineName = 'Local Xenova BERT-NER (Offline WASM) + Regex
 
 export async function getNERPipeline(onProgress = null) {
   if (!cachedNERPipeline) {
-    cachedNERPipeline = await pipeline('token-classification', '/models/Xenova', {
+    const modelPath = getAssetUrl('models/Xenova');
+    cachedNERPipeline = await pipeline('token-classification', modelPath, {
       quantized: true,
       subfolder: '',
       local_files_only: true,

@@ -1,11 +1,12 @@
 import { PaddleOcrService } from 'ppu-paddle-ocr/web';
+import { getAssetUrl } from '../utils/assetHelper.js';
 
-// PP-OCRv6 Tiny Ultra-Fast Model Configuration (100% Offline)
-const OCR_MODEL = {
-  detection: '/models/paddle/PP-OCRv6_tiny_det.ort',
-  recognition: '/models/paddle/PP-OCRv6_tiny_rec.ort',
-  charactersDictionary: '/models/paddle/ppocrv6_tiny_dict.txt'
-};
+// PP-OCRv6 Tiny Ultra-Fast Model Configuration with base URL awareness
+const getOcrModelConfig = () => ({
+  detection: getAssetUrl('models/paddle/PP-OCRv6_tiny_det.ort'),
+  recognition: getAssetUrl('models/paddle/PP-OCRv6_tiny_rec.ort'),
+  charactersDictionary: getAssetUrl('models/paddle/ppocrv6_tiny_dict.txt')
+});
 
 let cachedOCR = null;
 let activeProvider = 'WASM (SIMD)';
@@ -17,7 +18,7 @@ let activeProvider = 'WASM (SIMD)';
 export async function getPaddleOCR() {
   if (!cachedOCR) {
     cachedOCR = new PaddleOcrService({
-      model: OCR_MODEL,
+      model: getOcrModelConfig(),
       session: {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all'

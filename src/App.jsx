@@ -8,6 +8,7 @@ import PipelineStats from './components/PipelineStats.jsx';
 import DocumentCanvas from './components/DocumentCanvas.jsx';
 import ImageZoomModal from './components/ImageZoomModal.jsx';
 import ModelStoragePill from './components/ModelStoragePill.jsx';
+import { getAssetUrl } from './utils/assetHelper.js';
 
 const App = () => {
   // Input & Processing State
@@ -201,7 +202,7 @@ const App = () => {
   const handleLoadSample = async () => {
     try {
       setStatusMessage('Fetching sample screenshot...');
-      const response = await fetch('/sample.png');
+      const response = await fetch(getAssetUrl('sample.png'));
       const blob = await response.blob();
       const file = new File([blob], 'sample_id_document.png', { type: 'image/png' });
       setImageFile(file);

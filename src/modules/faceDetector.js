@@ -1,7 +1,8 @@
 import * as ort from 'onnxruntime-web';
+import { getAssetUrl } from '../utils/assetHelper.js';
 
-
-const MODEL_PATH = '/models/face/face_detection_yunet_2023mar.onnx';
+const MODEL_REL_PATH = 'models/face/face_detection_yunet_2023mar.onnx';
+const FALLBACK_YUNET_URL = 'https://raw.githubusercontent.com/opencv/opencv_zoo/master/models/face_detection_yunet/face_detection_yunet_2023mar.onnx';
 const INPUT_SIZE = 640;           // YuNet standard input resolution (640x640)
 const SCORE_THRESHOLD = 0.35;     // Threshold to catch all face candidates on documents/cards
 const NMS_THRESHOLD = 0.3;        // IoU threshold to eliminate overlapping duplicates
@@ -11,11 +12,42 @@ let cachedSession = null;
 let activeFaceProvider = 'WASM';
 
 /**
- * Loads and caches the YuNet Face Detector ONNX session.
+ * Loads and caches the YuNet Face Detector ONNX session with robust buffer validation
+ * and CDN fallback to ensure protobuf parsing never fails on corrupted/LFS pointer files.
  */
 export async function loadFaceDetector() {
   if (!cachedSession) {
-    cachedSession = await ort.InferenceSession.create(MODEL_PATH, {
+    const primaryUrl = getAssetUrl(MODEL_REL_PATH);
+    let buffer = null;
+
+    try {
+      const res = await fetch(primaryUrl);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+      const rawBuf = await res.arrayBuffer();
+
+      // Verify that this is real ONNX binary protobuf and not an un-downloaded 130-byte Git LFS pointer or HTML error
+      if (rawBuf.byteLength < 5000) {
+        const text = new TextDecoder().decode(rawBuf);
+        if (text.startsWith('version https://git-lfs') || text.includes('<!DOCTYPE') || text.includes('<html')) {
+          console.warn('[FaceDetector] Local YuNet file is an LFS pointer or HTML error. Falling back to OpenCV Zoo CDN...');
+          throw new Error('Local file is LFS pointer or HTML error page');
+        }
+      }
+      buffer = rawBuf;
+    } catch (primaryErr) {
+      console.warn(`[FaceDetector] Primary fetch from ${primaryUrl} failed (${primaryErr.message}). Attempting fallback to official OpenCV Zoo...`);
+      try {
+        const fallbackRes = await fetch(FALLBACK_YUNET_URL);
+        if (!fallbackRes.ok) throw new Error(`Fallback HTTP ${fallbackRes.status}`);
+        buffer = await fallbackRes.arrayBuffer();
+      } catch (fallbackErr) {
+        throw new Error(`Failed to load YuNet face model: ${primaryErr.message}. Fallback also failed: ${fallbackErr.message}`);
+      }
+    }
+
+    cachedSession = await ort.InferenceSession.create(new Uint8Array(buffer), {
       executionProviders: ['wasm'],
     });
   }
