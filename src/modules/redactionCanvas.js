@@ -90,16 +90,29 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       continue;
     }
 
+    const itemLower = itemText.toLowerCase();
+
     // Skip UI category lists or multi-word navigation where >= 50% of words are UI stopwords
+    // UNLESS the line contains a high-precision sensitive PII match (e.g. ORDER_ID, PHONE, CARD, EMAIL, etc.)
     const words = cleanLower.split(/[\s,&/+-]+/).filter(w => w.length >= 2);
     if (words.length > 0) {
       const stopwordCount = words.filter(w => UI_STOPWORDS.has(w) || COMPANY_INDICATORS.test(w)).length;
       if (stopwordCount / words.length >= 0.50) {
-        continue;
+        const hasDirectPII = redactedEntities.some(ent => {
+          const val = (ent.originalValue || '').trim().toLowerCase();
+          return val.length >= 3 && itemLower.includes(val);
+        }) || REGEX_RULES.some(rule => {
+          if (rule.tag === 'ADDRESS') return false;
+          const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
+          return pat.test(itemText);
+        });
+
+        if (!hasDirectPII) {
+          continue;
+        }
       }
     }
 
-    const itemLower = itemText.toLowerCase();
     const matchedSubSpans = [];
 
     // 1. Match against extracted PII entities

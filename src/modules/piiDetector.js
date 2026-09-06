@@ -7,7 +7,7 @@ env.allowRemoteModels = true;
 env.useBrowserCache = typeof window !== 'undefined';
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
-const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN)\b/i;
+const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN|Order ID|Order No|Tracking ID|Consignment)\b/i;
 
 let cachedNERPipeline = null;
 export const activeNEREngineName = 'Local Fine-Tuned MiniLM-L6 (Offline WASM) + Regex';
@@ -155,24 +155,31 @@ export const REGEX_RULES = [
   // 8. Card Expiration Date
   { pattern: /\b(?:Exp(?:ir(?:y|ation))?(?:\s*Date)?|valid thru|expires?)\s*(?:[:#=]|of|is|on)?\s*((?:0[1-9]|1[0-2])[\/-](?:20\d{2}|\d{2}))\b/gi, tag: 'CARD_EXPIRY' },
 
-  // 9. IBAN (Requires real ISO country code, eliminates Order IDs like OD438...)
+  // 9. E-Commerce Order IDs, Consignments & Tracking Numbers (Flipkart OD, Amazon, etc.)
+  { pattern: /\b(?:Order\s*(?:ID|Id|No\.?|Number|#)|Consignment\s*(?:No\.?|#)?|Tracking\s*(?:ID|Id|No\.?|#)?|Waybill\s*(?:No\.?|#)?|AWB\s*(?:No\.?|#)?)\s*[:#-]?\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ORDER_ID' },
+  { pattern: /\bOrder\s*[:#-]\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ORDER_ID' },
+  { pattern: /\b(?:My Orders|Orders?)\s*[>»/|:-]\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{6,32})\b/gi, tag: 'ORDER_ID' },
+  { pattern: /\b[oO][dD]\d{16,20}\b/g, tag: 'ORDER_ID' },
+  { pattern: /\b\d{3}-\d{7}-\d{7}\b/g, tag: 'ORDER_ID' },
+
+  // 10. IBAN (Requires real ISO country code)
   { pattern: new RegExp(String.raw`\b(?:${IBAN_COUNTRIES})\d{2}(?:[\s-]?\d{4}){3,7}\b`, 'gi'), tag: 'IBAN' },
 
-  // 10. Indian Aadhaar Card (12 digits) & Masked - Strict boundaries: must not be part of a 16-digit card or longer number
+  // 11. Indian Aadhaar Card (12 digits) & Masked - Strict boundaries: must not be part of a 16-digit card or longer number
   { pattern: /(?<!\d[-\s]?)\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
   { pattern: /(?<![X\d][-\s]?)\b[X]{4}[ -][X]{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
 
-  // 11. Indian PAN Card
+  // 12. Indian PAN Card
   { pattern: /\b[A-Z]{5}\d{4}[A-Z]\b/g, tag: 'PAN' },
 
-  // 12. Indian TAN (Tax Deduction Account Number)
+  // 13. Indian TAN (Tax Deduction Account Number)
   { pattern: /\b[A-Z]{4}\d{5}[A-Z]\b/g, tag: 'TAN' },
 
-  // 13. Indian GSTIN
+  // 14. Indian GSTIN
   { pattern: /\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/g, tag: 'GSTIN' },
 
-  // 14. Indian Bank IFSC Code (Supports standard and OCR 'o' / 'O' variations)
-  { pattern: /\b[A-Za-z]{4}[0oO][A-Za-z0-9]{6}\b/gi, tag: 'IFSC' },
+  // 15. Indian Bank IFSC Code (Supports standard and OCR 'o' / 'O' variations; requires digits in branch to avoid English words like 'Comfortable')
+  { pattern: /\b[A-Za-z]{4}[0oO](?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6}\b/gi, tag: 'IFSC' },
 
   // 15. Indian Voter ID
   { pattern: /\b[A-Z]{3}\d{7}\b/g, tag: 'VOTER_ID' },
