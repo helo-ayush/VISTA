@@ -47,7 +47,7 @@ export const UI_STOPWORDS = new Set([
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
-export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand)\b/i;
+export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?)\b/i;
 
 // Valid ISO 3166-1 alpha-2 country codes used in real international IBANs
 const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR|GE|DE|GI|GR|GL|GT|HU|IS|IE|IL|IT|JO|KZ|XK|KW|LV|LB|LI|LT|LU|MK|MT|MR|MU|MD|MC|ME|NL|NO|PK|PS|PL|PT|QA|RO|SM|SA|RS|SK|SI|ES|SE|CH|TN|TR|AE|GB|VA';
@@ -60,7 +60,13 @@ export const REGEX_RULES = [
   // 2. UPI IDs / VPA
   { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
 
-  // 3. URLs & Personal Websites
+  // 3. Social Media & Platform Handles (@username, @ rohitsinghal)
+  { pattern: /(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/gi, tag: 'HANDLE' },
+
+  // 4. Labeled Handles & User IDs (ID: #ROHITSINGHAL, User ID: abc_12)
+  { pattern: /(?:Handle|Username|User\s*ID|ID)\s*[:#]\s*#?\s*([a-zA-Z0-9_.-]{3,32})\b/gi, tag: 'HANDLE' },
+
+  // 5. URLs & Personal Websites
   { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_+.~#?&//=]*)?/gi, tag: 'URL' },
 
   // 4. IBAN (Requires real ISO country code, eliminates Order IDs like OD438...)

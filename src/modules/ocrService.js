@@ -1,10 +1,10 @@
 import { PaddleOcrService } from 'ppu-paddle-ocr/web';
 
-// PP-OCRv6 Small High-Accuracy Model Configuration (100% Offline)
+// PP-OCRv6 Tiny Ultra-Fast Model Configuration (100% Offline)
 const OCR_MODEL = {
-  detection: '/models/paddle/PP-OCRv6_small_det.ort',
-  recognition: '/models/paddle/PP-OCRv6_small_rec.ort',
-  charactersDictionary: '/models/paddle/ppocrv6_dict.txt'
+  detection: '/models/paddle/PP-OCRv6_tiny_det.ort',
+  recognition: '/models/paddle/PP-OCRv6_tiny_rec.ort',
+  charactersDictionary: '/models/paddle/ppocrv6_tiny_dict.txt'
 };
 
 let cachedOCR = null;
@@ -25,7 +25,7 @@ export async function getPaddleOCR() {
       detection: {
         maxSideLength: 960, // Efficient balanced resolution: cuts DBNet convolution time by >50% without dropping small text
         minimumAreaThreshold: 20, // Eliminates micro-noise specks and fabric textures while keeping small words/numbers
-        paddingHorizontal: 0.7,
+        paddingHorizontal: 0.8, // Generous boundary margin so terminal letters (e.g., 's', 'd', 'm') never get cropped
         paddingVertical: 0.4
       },
       recognition: {

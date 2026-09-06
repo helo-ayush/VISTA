@@ -73,9 +73,28 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
         }
         if (shouldRedact) break;
       }
+
+      // Case D: Handles & Usernames (@username, @ rohitsinghal)
+      if (ent.tag === 'HANDLE') {
+        const cleanHandle = valLower.replace(/^[@#\s]+/, '');
+        const cleanItem = itemLower.replace(/^[@#\s]+/, '');
+        if (cleanHandle.length >= 3 && (cleanItem.includes(cleanHandle) || cleanHandle.includes(cleanItem))) {
+          shouldRedact = true;
+          matchedTag = 'HANDLE';
+          break;
+        }
+      }
     }
 
     // 2. High-precision direct regex safety net on specific item text
+    if (!shouldRedact) {
+      // Direct handle detection: any OCR box starting with @ or containing @username
+      if (/(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/i.test(itemText) || /^@\s*[a-zA-Z0-9_.-]{2,32}$/i.test(itemText)) {
+        shouldRedact = true;
+        matchedTag = 'HANDLE';
+      }
+    }
+
     // Only test high-confidence deterministic rules (PHONE, AADHAAR, PAN, EMAIL, UPI, etc.)
     if (!shouldRedact && itemText.length >= 5) {
       for (const rule of REGEX_RULES) {
@@ -222,7 +241,8 @@ export function renderCanvasOverlay(canvas, img, boxesToRedact = [], allOcrBoxes
 
       const fontSize = Math.max(10, Math.round(canvas.width / 90));
       ctx.font = `bold ${fontSize}px monospace`;
-      const label = isRedacted ? `[${item.tag || 'PII'}]` : (item.text?.substring(0, 15) || `${Math.round(item.confidence * 100)}%`);
+      // Display the full scanned text without artificial 15-character truncation
+      const label = isRedacted ? `[${item.tag || 'PII'}]` : (item.text || `${Math.round(item.confidence * 100)}%`);
       const textMetrics = ctx.measureText(label);
 
       ctx.fillStyle = isRedacted ? 'rgba(239, 68, 68, 0.9)' : 'rgba(16, 185, 129, 0.85)';
