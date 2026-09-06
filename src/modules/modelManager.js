@@ -138,40 +138,45 @@ export async function preloadAllModels(onProgress) {
     await getPaddleOCR();
     report('OCR Engine ready', 3.4, 15);
 
-    // Stage 3: BERT-NER Model (~111.4 MB)
-    report('Downloading BERT-NER weights (109 MB)...', 0, 16);
+    // Stage 3: Neural PII Model (MiniLM-L6 v2 ~22.8 MB)
+    report('Loading Neural PII Model (MiniLM-L6 ~22.8 MB)...', 0, 22);
     await getNERPipeline((item) => {
       if (item && item.progress !== undefined) {
         const isTotal = item.status === 'progress_total';
         const isModel = item.file && item.file.includes('model');
         const filename = item.file ? item.file.replace(/^.*[\\\/]/, '') : '';
 
+        // Check whether downloading local ~22.8MB model or 109MB fallback
+        const isFallbackRemote = item.total && item.total > 50 * 1024 * 1024;
+        const targetModelMB = isFallbackRemote ? 109.0 : 22.8;
+        const currentTotalMB = isFallbackRemote ? 116.0 : TOTAL_MODELS_SIZE_MB;
+
         let bertProgress = 0;
         let bertLoadedMB = 0;
 
         if (isTotal) {
           bertProgress = item.progress;
-          bertLoadedMB = (item.progress / 100) * 109;
+          bertLoadedMB = (item.progress / 100) * targetModelMB;
         } else if (isModel) {
           bertProgress = item.progress;
-          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : (item.progress / 100) * 109;
+          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : (item.progress / 100) * targetModelMB;
         } else {
-          // Metadata or tokenizer files (config.json, tokenizer.json ~1MB total)
-          bertProgress = Math.min(item.progress * 0.03, 3); // Max 3% contribution so it never jumps to 90% prematurely
-          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : 0.8;
+          // Metadata or tokenizer files (config.json, tokenizer.json ~0.7MB total)
+          bertProgress = Math.min(item.progress * 0.05, 5);
+          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : 0.7;
         }
 
-        const overallProgress = Math.round(16 + (bertProgress * 0.83));
-        const totalNowMB = parseFloat((6.7 + bertLoadedMB).toFixed(1));
+        const overallProgress = Math.round(22 + (bertProgress * 0.77));
+        const totalNowMB = parseFloat((6.6 + bertLoadedMB).toFixed(1));
 
         if (onProgress) {
           onProgress({
-            progress: Math.min(Math.max(overallProgress, 16), 99),
+            progress: Math.min(Math.max(overallProgress, 22), 99),
             stage: filename
               ? `Downloading ${filename} (${Math.round(item.progress)}%)...`
-              : 'Downloading BERT-NER weights...',
-            loadedMB: Math.min(totalNowMB, totalMB),
-            totalMB
+              : 'Downloading Neural PII weights...',
+            loadedMB: Math.min(totalNowMB, currentTotalMB),
+            totalMB: currentTotalMB
           });
         }
       }
