@@ -199,10 +199,10 @@ export const REGEX_RULES = [
   // 22. Passports (Indian 8-char, US/Global alphanumeric)
   { pattern: /\b[A-PR-WYa-pr-wy][1-9]\d{6}\b|\b[A-Z]\d{7,8}[A-Z]?\b/g, tag: 'PASSPORT' },
 
-  // 19. Phone Numbers: Indian Mobile (6-9 followed by 9 digits)
-  { pattern: /(?:\+91[\s.-]?|0091[\s.-]?)[6-9]\d{4}[\s.-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b/g, tag: 'PHONE' },
+  // 19. Phone Numbers: Indian Mobile (all formats: +91 98765 43210, 98765 43210, 9876543210, (+91 98765 43210), 0-prefixed)
+  { pattern: /(?:\(\+91[\s.-]?[6-9]\d{4}[\s.-]?\d{5}\)|\+91[\s.-]?[6-9]\d{4}[\s.-]?\d{5}\b|\b(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b|\b(?:\+91[\s.-]?)?[6-9]\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\b0[6-9]\d{4}[\s.-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b)/g, tag: 'PHONE' },
   // 20. Phone Numbers: Indian Landlines
-  { pattern: /\b0(?:11|22|33|44|80)[- ]?\d{4}[- ]?\d{4}\b|\b0\d{3,4}[- ]?\d{6,7}\b/g, tag: 'PHONE' },
+  { pattern: /\b0(?:11|22|33|44|80)[-\s]?\d{4}[-\s]?\d{4}\b|\b0\d{2,4}[-\s]?\d{6,8}\b/g, tag: 'PHONE' },
   // 21. Phone Numbers: US & International
   { pattern: /\+\d{1,3}[\s.-]\d{1,4}(?:[\s.-]\d{2,4}){2,4}\b|\+\d{1,3}[\s.-]\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b|\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}\b/g, tag: 'PHONE' },
 
@@ -328,7 +328,6 @@ const UPGRADED_ADDRESS_PATTERNS = [
   /\b[ABCEGHJ-NPRSTVXY]\d[A-Z][ -]?\d[A-Z]\d\b/g,         
   /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,  
   /\b[1-9]\d{2}\s?\d{3}\b/g,                              
-  /(?<![#\-\d])\b\d{5}(?:-\d{4})?\b(?![#\-\d])/g,                                
 
   // K. GPS Coordinates
   /[-+]?\d{1,2}\.\d{4,}\s*°?\s*[NSns]?\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?/g,
@@ -459,9 +458,20 @@ function extractNERSpans(rawResults, line) {
       }
     }
 
+    // Reject document labels like "Aadhaar Card UID, PAN" from being classified as ADDRESS or NAME
+    if (/\b(?:Aadhaar|UIDAI|UID|PAN\s*Card|Voter\s*ID|Passport|Driving\s*License)\b/i.test(extractedText)) {
+      searchIdx = endIdx;
+      continue;
+    }
+
     let finalTag = isName ? 'NAME' : 'ADDRESS';
     if (isName && KNOWN_CITIES_SET.has(cleanLower)) {
       finalTag = 'ADDRESS';
+    }
+
+    // If an entity consisting of phone digits/plus/hyphen was tagged as ADDRESS or NAME, correct it to PHONE
+    if (/^(?:\+?\d{1,4}[\s.-]?)?\(?\d{2,5}\)?[\s.-]?\d{3,5}[\s.-]?\d{3,5}$/.test(extractedText.trim())) {
+      finalTag = 'PHONE';
     }
 
     spans.push({

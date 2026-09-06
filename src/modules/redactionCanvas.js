@@ -6,19 +6,38 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * Computes a surgical sub-bounding box for an in-line substring within an OCR text line box.
  * Allows pinpoint in-line redaction (e.g. redacting just "Rajesh Kumar" in a full sentence).
  */
+function getCharWeight(ch) {
+  if ('il1!|:;\',. -`'.includes(ch)) return 0.52;
+  if ('frtI()[]{}'.includes(ch)) return 0.68;
+  if ('mwWM@%#&'.includes(ch)) return 1.40;
+  if (ch >= 'A' && ch <= 'Z') return 1.18;
+  if (ch >= '0' && ch <= '9') return 1.12;
+  return 0.95;
+}
+
 function computeSubBox(box, fullText, startIdx, endIdx) {
   const b = box || { x: 0, y: 0, width: 100, height: 20 };
-  const totalLen = Math.max(1, fullText.length);
-  const startRatio = startIdx / totalLen;
-  const endRatio = endIdx / totalLen;
+  const str = fullText || '';
+  let totalW = 0;
+  const prefixWeights = [0];
+  for (let i = 0; i < str.length; i++) {
+    totalW += getCharWeight(str[i]);
+    prefixWeights.push(totalW);
+  }
+  totalW = Math.max(0.1, totalW);
 
-  // Modest margin so bounding badge cleanly encloses character edges without bleeding into neighbor words
-  const padRatio = 0.005;
-  const safeStart = Math.max(0, startRatio - padRatio);
-  const safeEnd = Math.min(1, endRatio + padRatio);
+  const startRatio = prefixWeights[Math.min(startIdx, str.length)] / totalW;
+  const endRatio = prefixWeights[Math.min(endIdx, str.length)] / totalW;
 
-  const subX = Math.round((b.x ?? 0) + (b.width ?? 0) * safeStart);
-  const subW = Math.max(12, Math.round((b.width ?? 0) * (safeEnd - safeStart)));
+  const boxW = b.width || 100;
+  const rawX = (b.x || 0) + boxW * startRatio;
+  const rawEnd = (b.x || 0) + boxW * endRatio;
+
+  // Modest pixel padding (8px) so characters (like trailing digits "90" or leading "HDFC") are never clipped
+  const padPx = 8;
+  const subX = Math.max(b.x || 0, Math.round(rawX - (startIdx > 0 ? padPx : 0)));
+  const subEnd = Math.min((b.x || 0) + boxW, Math.round(rawEnd + (endIdx < str.length ? padPx : 0)));
+  const subW = Math.max(16, subEnd - subX);
 
   return {
     x: subX,
