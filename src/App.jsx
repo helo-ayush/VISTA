@@ -511,15 +511,16 @@ const App = () => {
         </div>
       )}
 
-      {/* Fullscreen Interactive Pan & Zoom Modal */}
+      {/* Minimalist Floating Pan & Zoom Lightbox */}
       <ImageZoomModal
         isOpen={isZoomOpen}
         onClose={() => setIsZoomOpen(false)}
-        canvasRef={canvasRef}
-        imageFileName={imageFile?.name}
+        imageElement={imageElement}
+        redactedBoxes={redactedBoxes}
+        allOcrBoxes={allOcrBoxes}
+        detectedFaces={detectedFaces}
         viewMode={viewMode}
         setViewMode={setViewMode}
-        onDownload={downloadRedactedImage}
       />
     </div>
   );
