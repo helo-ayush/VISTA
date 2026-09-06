@@ -25,4 +25,9 @@ dist-ssr
 
 # Scratch and test data
 data.json
-test_*
+scratch/test_*
+
+# Model Training Artifacts
+training/data/*.jsonl
+training/output_model/
+training/onnx_model/
