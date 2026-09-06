@@ -1,14 +1,9 @@
 import { pipeline, env } from '@huggingface/transformers';
 
-// Configure transformers.js to load 100% locally from /models/Xenova (Zero Remote Downloads / Offline)
+// Configure transformers.js to load 100% locally from /models/Xenova (Offline WASM with Cache API persistence)
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
-env.useBrowserCache = false;
-
-// Purge any stale/corrupted cache from previous failed browser loads
-if (typeof window !== 'undefined' && 'caches' in window) {
-  caches.delete('transformers-cache').catch(() => {});
-}
+env.useBrowserCache = true;
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
 const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN)\b/i;
@@ -16,15 +11,20 @@ const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Al
 let cachedNERPipeline = null;
 export const activeNEREngineName = 'Local Xenova BERT-NER (Offline WASM) + Regex';
 
-export async function getNERPipeline() {
+export async function getNERPipeline(onProgress = null) {
   if (!cachedNERPipeline) {
     cachedNERPipeline = await pipeline('token-classification', '/models/Xenova', {
       quantized: true,
       subfolder: '',
-      local_files_only: true
+      local_files_only: true,
+      progress_callback: onProgress || undefined
     });
   }
   return { ner: cachedNERPipeline, engine: activeNEREngineName };
+}
+
+export function resetNERPipeline() {
+  cachedNERPipeline = null;
 }
 
 // Comprehensive UI, E-Commerce, Navigation and Button Stopwords (Never PII)
@@ -334,9 +334,9 @@ function extractNERSpans(rawResults, line) {
  * @param {string} rawText - Input sensitive text
  * @returns {Promise<{ cleanedText: string, entities: Array, redactedEntities: Array, count: number, engine: string, timeTaken: number }>}
  */
-export async function redactTextContent(rawText) {
+export async function redactTextContent(rawText, onProgress = null) {
   const startTime = performance.now();
-  const { ner, engine } = await getNERPipeline();
+  const { ner, engine } = await getNERPipeline(onProgress);
   const redactions = [];
 
   const addSpan = (start, end, tag) => {

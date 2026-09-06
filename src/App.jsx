@@ -3,9 +3,11 @@ import { detectFaces } from './modules/faceDetector.js';
 import { runDocumentOCR } from './modules/ocrService.js';
 import { redactTextContent } from './modules/piiDetector.js';
 import { findBoxesToRedact, renderCanvasOverlay } from './modules/redactionCanvas.js';
+import { checkStorageUsage, clearAllModelStorage, preloadAllModels, TOTAL_MODELS_SIZE_MB } from './modules/modelManager.js';
 import PipelineStats from './components/PipelineStats.jsx';
 import DocumentCanvas from './components/DocumentCanvas.jsx';
 import ImageZoomModal from './components/ImageZoomModal.jsx';
+import ModelStoragePill from './components/ModelStoragePill.jsx';
 
 const App = () => {
   // Input & Processing State
@@ -17,6 +19,12 @@ const App = () => {
   const [pipelineStats, setPipelineStats] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
+
+  // Model Download & Local Cache Management State
+  const [storageInfo, setStorageInfo] = useState(null);
+  const [downloadProgress, setDownloadProgress] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [clearedMessage, setClearedMessage] = useState('');
 
   // Extracted Pipeline Outputs
   const [detectedFaces, setDetectedFaces] = useState([]);
@@ -96,7 +104,23 @@ const App = () => {
       // Level 3: PII & Address Detection (Xenova BERT-NER + Regex)
       setCurrentLevel(3);
       setStatusMessage('Level 3/4: Analyzing PII & Addresses (BERT-NER + Regex)...');
-      const { cleanedText, redactedEntities, count: piiCount, timeTaken: piiTime } = await redactTextContent(fullText);
+      const { cleanedText, redactedEntities, count: piiCount, timeTaken: piiTime } = await redactTextContent(fullText, (item) => {
+        if (item && item.progress !== undefined) {
+          setIsDownloading(true);
+          const pct = Math.round(item.progress);
+          const loaded = item.loaded ? (item.loaded / (1024 * 1024)).toFixed(1) : ((pct / 100) * 109).toFixed(1);
+          setDownloadProgress({
+            progress: pct,
+            stage: `Downloading BERT-NER weights (${pct}%)...`,
+            loadedMB: loaded,
+            totalMB: 109
+          });
+          setStatusMessage(`Downloading neural weights (${pct}% - ${loaded}/109 MB)...`);
+        }
+      });
+      setIsDownloading(false);
+      setDownloadProgress(null);
+      checkStorageUsage().then(info => setStorageInfo(info));
       setRedactedOcrText(cleanedText);
       setDetectedPiiEntities(redactedEntities);
 
@@ -187,6 +211,34 @@ const App = () => {
     }
   };
 
+  // Check client browser storage usage on mount
+  useEffect(() => {
+    checkStorageUsage().then(info => setStorageInfo(info));
+  }, []);
+
+  const handleClearStorage = async () => {
+    const newInfo = await clearAllModelStorage();
+    setStorageInfo(newInfo);
+    setClearedMessage('Storage Cleared (0 MB)');
+    setTimeout(() => setClearedMessage(''), 3500);
+  };
+
+  const handlePreloadModels = async () => {
+    setIsDownloading(true);
+    setDownloadProgress({ progress: 0, stage: 'Starting download...', loadedMB: 0, totalMB: TOTAL_MODELS_SIZE_MB });
+    try {
+      const info = await preloadAllModels((p) => {
+        setDownloadProgress(p);
+      });
+      setStorageInfo(info);
+    } catch (e) {
+      alert('Preload failed: ' + e.message);
+    } finally {
+      setIsDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
   const downloadRedactedImage = () => {
     if (!canvasRef.current) return;
     const link = document.createElement('a');
@@ -197,6 +249,21 @@ const App = () => {
 
   return (
     <div className='flex flex-col w-full items-center py-6 px-4 max-w-5xl mx-auto min-h-screen font-sans text-gray-900'>
+      {/* Top Bar with Badge & Model Storage Pill */}
+      <div className='w-full flex items-center justify-between gap-4 mb-4'>
+        <div className='text-xs font-semibold tracking-wider uppercase text-indigo-600 bg-indigo-50/90 px-3 py-1 rounded-full border border-indigo-100/80'>
+          100% In-Browser Privacy
+        </div>
+        <ModelStoragePill
+          storageInfo={storageInfo}
+          downloadProgress={downloadProgress}
+          isDownloading={isDownloading}
+          onClearStorage={handleClearStorage}
+          onPreloadModels={handlePreloadModels}
+          clearedMessage={clearedMessage}
+        />
+      </div>
+
       {/* Artistic Clean Header */}
       <div className='flex flex-col items-center gap-2 text-center mb-7'>
         <h1 className='text-3xl sm:text-4xl font-black text-gray-900 tracking-tight'>

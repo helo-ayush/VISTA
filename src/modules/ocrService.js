@@ -42,6 +42,15 @@ export async function getPaddleOCR() {
   return { service: cachedOCR, provider: activeProvider };
 }
 
+export async function resetPaddleOCR() {
+  if (cachedOCR) {
+    try {
+      await cachedOCR.destroy();
+    } catch (e) {}
+    cachedOCR = null;
+  }
+}
+
 /**
  * Runs high-accuracy accelerated OCR on an ArrayBuffer image.
  * @param {ArrayBuffer} arrayBuffer - Image data

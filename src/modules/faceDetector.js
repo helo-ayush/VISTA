@@ -22,6 +22,13 @@ export async function loadFaceDetector() {
   return cachedSession;
 }
 
+export function resetFaceDetector() {
+  if (cachedSession) {
+    try { cachedSession.release(); } catch (e) {}
+    cachedSession = null;
+  }
+}
+
 /**
  * Decodes the 12 raw tensor outputs from YuNet (strides 8, 16, 32)
  * into pixel coordinates scaled back to original image dimensions.

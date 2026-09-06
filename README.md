@@ -147,6 +147,13 @@ Combines deep semantic NER with deterministic rule-based pattern matching:
 
 ---
 
+### Level 5: On-Device Model Management & Storage Reclamation
+* **Live Download Progress Pill:** When deployed to production, first-time users receive real-time streaming feedback with exact percentages and MB loaded (`Downloading Models: 45% (52.8 MB)`).
+* **Browser Cache API Persistence:** Model weights are stored locally in the client's `CacheStorage`. Subsequent visits and scans run completely offline with 0 ms network overhead.
+* **One-Click Space Reclamation:** A prominent `Clear Space` button allows users to immediately purge cached neural weights (`~118 MB`) from Cache API, IndexedDB, and memory, returning origin storage usage back to `0 MB`.
+
+---
+
 ## Benchmark Comparison on Client CPU
 
 Tested on an Intel Core i5/i7 consumer laptop running Chrome:
