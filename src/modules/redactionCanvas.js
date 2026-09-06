@@ -3,8 +3,35 @@ import { REGEX_RULES, UI_STOPWORDS, COMPANY_INDICATORS } from './piiDetector.js'
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * Computes a surgical sub-bounding box for an in-line substring within an OCR text line box.
+ * Allows pinpoint in-line redaction (e.g. redacting just "Rajesh Kumar" in a full sentence).
+ */
+function computeSubBox(box, fullText, startIdx, endIdx) {
+  const b = box || { x: 0, y: 0, width: 100, height: 20 };
+  const totalLen = Math.max(1, fullText.length);
+  const startRatio = startIdx / totalLen;
+  const endRatio = endIdx / totalLen;
+
+  // Modest margin so bounding badge cleanly encloses character edges without bleeding into neighbor words
+  const padRatio = 0.005;
+  const safeStart = Math.max(0, startRatio - padRatio);
+  const safeEnd = Math.min(1, endRatio + padRatio);
+
+  const subX = Math.round((b.x ?? 0) + (b.width ?? 0) * safeStart);
+  const subW = Math.max(12, Math.round((b.width ?? 0) * (safeEnd - safeStart)));
+
+  return {
+    x: subX,
+    y: b.y ?? 0,
+    width: subW,
+    height: b.height ?? 20
+  };
+}
+
+/**
  * Matches detected OCR visual bounding boxes against extracted PII entities.
  * Eliminates false positives on icons, UI buttons, breadcrumbs, and random text fragments.
+ * Computes surgical in-line sub-boxes so only the sensitive words are masked, not the whole line.
  *
  * @param {Array} ocrBoxes - Detected OCR boxes with { text, box, confidence }
  * @param {Array} redactedEntities - Extracted PII entities with { originalValue, tag }
@@ -46,8 +73,8 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       }
     }
 
-    let shouldRedact = false;
-    let matchedTag = 'PII';
+    const itemLower = itemText.toLowerCase();
+    const matchedSubSpans = [];
 
     // 1. Match against extracted PII entities
     for (const ent of redactedEntities) {
@@ -55,97 +82,148 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       if (!val || val.length < 3) continue;
 
       const valLower = val.toLowerCase();
-      const itemLower = itemText.toLowerCase();
       const cleanVal = val.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
       const cleanItem = itemText.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
 
-      // Case A: The OCR box contains the sensitive PII (e.g. "Himanshu Kumar Mahto 8383026675" contains "8383026675")
-      if (itemLower.includes(valLower) || (cleanVal.length >= 3 && cleanItem.includes(cleanVal))) {
-        shouldRedact = true;
-        matchedTag = ent.tag;
-        break;
+      // Case A: The OCR line contains the sensitive PII (either full entity or substring)
+      let searchStart = 0;
+      while (searchStart < itemLower.length) {
+        const idx = itemLower.indexOf(valLower, searchStart);
+        if (idx === -1) break;
+        matchedSubSpans.push({
+          start: idx,
+          end: idx + val.length,
+          tag: ent.tag,
+          value: val
+        });
+        searchStart = idx + val.length;
       }
 
-      // Case B: The PII entity contains this OCR box
-      // Handles truncated strings with ellipsis (...), commas, dashes gracefully
-      if (cleanItem.length >= 4 && !UI_STOPWORDS.has(cleanLower)) {
-        if (cleanVal.includes(cleanItem) || cleanItem.includes(cleanVal)) {
-          shouldRedact = true;
-          matchedTag = ent.tag;
-          break;
-        }
-        try {
-          const wordRegex = new RegExp(String.raw`\b${esc(cleanItem)}\b`, 'i');
-          if (wordRegex.test(cleanVal)) {
-            shouldRedact = true;
-            matchedTag = ent.tag;
-            break;
-          }
-        } catch (e) {}
-      }
-
-      // Case C: For person names: check individual name tokens (length >= 3, e.g. "Himanshu" in "Himanshu Kumar Mahto")
+      // Case B: For person names, match individual name tokens (length >= 3)
       if (ent.tag === 'NAME' && val.split(/\s+/).length > 1) {
         const nameParts = val.split(/\s+/).filter(p => p.length >= 3 && !UI_STOPWORDS.has(p.toLowerCase()) && !COMPANY_INDICATORS.test(p));
         for (const part of nameParts) {
-          if (new RegExp(String.raw`\b${esc(part)}\b`, 'i').test(itemText)) {
-            shouldRedact = true;
-            matchedTag = 'NAME';
-            break;
+          const partLower = part.toLowerCase();
+          let pStart = 0;
+          while (pStart < itemLower.length) {
+            const pIdx = itemLower.indexOf(partLower, pStart);
+            if (pIdx === -1) break;
+            const isWordStart = pIdx === 0 || !/\w/.test(itemLower[pIdx - 1]);
+            const isWordEnd = (pIdx + part.length >= itemLower.length) || !/\w/.test(itemLower[pIdx + part.length]);
+            if (isWordStart && isWordEnd) {
+              matchedSubSpans.push({
+                start: pIdx,
+                end: pIdx + part.length,
+                tag: 'NAME',
+                value: part
+              });
+            }
+            pStart = pIdx + part.length;
           }
         }
-        if (shouldRedact) break;
       }
 
-      // Case D: Handles & Usernames (@username, @ rohitsinghal)
+      // Case C: The PII entity contains this OCR box (e.g. truncated address "Home Plot-42...")
+      if (cleanItem.length >= 4 && !UI_STOPWORDS.has(cleanLower)) {
+        if (cleanVal.includes(cleanItem)) {
+          matchedSubSpans.push({
+            start: 0,
+            end: itemText.length,
+            tag: ent.tag,
+            value: itemText
+          });
+        }
+      }
+
+      // Case D: Handles & Usernames (@username)
       if (ent.tag === 'HANDLE') {
         const cleanHandle = valLower.replace(/^[@#\s]+/, '');
-        const cleanItem = itemLower.replace(/^[@#\s]+/, '');
-        if (cleanHandle.length >= 3 && (cleanItem.includes(cleanHandle) || cleanHandle.includes(cleanItem))) {
-          shouldRedact = true;
-          matchedTag = 'HANDLE';
-          break;
+        if (cleanHandle.length >= 3) {
+          let hStart = 0;
+          while (hStart < itemLower.length) {
+            const hIdx = itemLower.indexOf(cleanHandle, hStart);
+            if (hIdx === -1) break;
+            const actualStart = (hIdx > 0 && (itemLower[hIdx - 1] === '@' || itemLower[hIdx - 1] === '#')) ? hIdx - 1 : hIdx;
+            matchedSubSpans.push({
+              start: actualStart,
+              end: hIdx + cleanHandle.length,
+              tag: 'HANDLE',
+              value: cleanHandle
+            });
+            hStart = hIdx + cleanHandle.length;
+          }
         }
       }
     }
 
-    // 2. High-precision direct regex safety net on specific item text
-    if (!shouldRedact) {
-      // Direct handle detection: any OCR box starting with @ or containing @username
-      if (/(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/i.test(itemText) || /^@\s*[a-zA-Z0-9_.-]{2,32}$/i.test(itemText)) {
-        shouldRedact = true;
-        matchedTag = 'HANDLE';
+    // 2. High-precision direct regex rules on this line (PHONE, AADHAAR, PAN, EMAIL, UPI)
+    for (const rule of REGEX_RULES) {
+      if (rule.tag === 'ADDRESS' || rule.tag === 'ACCOUNT_NUMBER') continue;
+      const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
+      let m;
+      while ((m = pat.exec(itemText)) !== null) {
+        matchedSubSpans.push({
+          start: m.index,
+          end: m.index + m[0].length,
+          tag: rule.tag,
+          value: m[0]
+        });
       }
     }
 
-    // Only test high-confidence deterministic rules (PHONE, AADHAAR, PAN, EMAIL, UPI, etc.)
-    if (!shouldRedact && itemText.length >= 5) {
-      for (const rule of REGEX_RULES) {
-        if (rule.tag === 'ADDRESS' || rule.tag === 'ACCOUNT_NUMBER') continue;
-        const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
-        if (pat.test(itemText)) {
-          shouldRedact = true;
-          matchedTag = rule.tag;
-          break;
-        }
-      }
-    }
-
-    // 3. Document labels like "Name:", "Father's Name:", "Aadhaar No:", "PAN:"
-    if (!shouldRedact && itemText.length >= 4) {
-      if (/^(?:Name|Father's Name|Spouse Name|Aadhaar|PAN|S\/o|D\/o|W\/o)\s*[:-]/i.test(itemText)) {
-        shouldRedact = true;
-        matchedTag = 'PII_FIELD';
-      }
-    }
-
-    if (shouldRedact) {
-      boxesToRedact.push({
-        ...item.box,
-        text: itemText,
-        tag: matchedTag,
-        confidence: item.confidence
+    // 3. Direct handle detection: any OCR box starting with @ or containing @username
+    const handleRegex = /(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/gi;
+    let hm;
+    while ((hm = handleRegex.exec(itemText)) !== null) {
+      matchedSubSpans.push({
+        start: hm.index,
+        end: hm.index + hm[0].length,
+        tag: 'HANDLE',
+        value: hm[0]
       });
+    }
+
+    if (matchedSubSpans.length > 0) {
+      // Sort and merge overlapping sub-spans within this line
+      matchedSubSpans.sort((a, b) => a.start - b.start);
+      const mergedLineSpans = [];
+      for (const span of matchedSubSpans) {
+        if (mergedLineSpans.length === 0) {
+          mergedLineSpans.push({ ...span });
+        } else {
+          const last = mergedLineSpans[mergedLineSpans.length - 1];
+          if (span.start <= last.end) {
+            last.end = Math.max(last.end, span.end);
+            if (span.tag === 'NAME' || last.tag === 'NAME') last.tag = 'NAME';
+          } else {
+            mergedLineSpans.push({ ...span });
+          }
+        }
+      }
+
+      // Generate surgical boxes for each matched entity
+      for (const span of mergedLineSpans) {
+        const itemBox = item.box || { x: item.x || 0, y: item.y || 0, width: item.width || 100, height: item.height || 20 };
+        const spanRatio = (span.end - span.start) / itemText.length;
+        if (spanRatio >= 0.85) {
+          // Entity occupies the whole line -> redact full box
+          boxesToRedact.push({
+            ...itemBox,
+            text: itemText,
+            tag: span.tag,
+            confidence: item.confidence
+          });
+        } else {
+          // Entity is an in-line substring -> compute pinpoint sub-box!
+          const sub = computeSubBox(itemBox, itemText, span.start, span.end);
+          boxesToRedact.push({
+            ...sub,
+            text: itemText.substring(span.start, span.end),
+            tag: span.tag,
+            confidence: item.confidence
+          });
+        }
+      }
     }
   }
 
@@ -339,9 +417,9 @@ export function renderCanvasOverlay(canvas, img, boxesToRedact = [], allOcrBoxes
     drawRoundedRect(ctx, rx, ry, rw, rh, 4);
     ctx.fill();
 
-    // Guided semantic token: <TAG_HIDDEN>
+    // Guided semantic token: <TAG_HIDDEN> or compact [TAG] if box is narrow
     const tag = (box.tag || 'PII').toUpperCase();
-    const token = `<${tag}_HIDDEN>`;
+    const token = rw >= 110 ? `<${tag}_HIDDEN>` : (rw >= 50 ? `[${tag}]` : `*`);
 
     const maxFontSize = Math.max(10, Math.min(18, Math.round(rh * 0.65)));
     ctx.font = `bold ${maxFontSize}px ui-monospace, SFMono-Regular, monospace`;
@@ -349,8 +427,8 @@ export function renderCanvasOverlay(canvas, img, boxesToRedact = [], allOcrBoxes
 
     // Auto-fit font size if badge is wider than the box
     let fittedFontSize = maxFontSize;
-    if (metrics.width > rw - 6 && rw > 30) {
-      fittedFontSize = Math.max(8, Math.floor(maxFontSize * (rw - 8) / metrics.width));
+    if (metrics.width > rw - 6 && rw > 25) {
+      fittedFontSize = Math.max(8, Math.floor(maxFontSize * (rw - 6) / metrics.width));
       ctx.font = `bold ${fittedFontSize}px ui-monospace, SFMono-Regular, monospace`;
       metrics = ctx.measureText(token);
     }

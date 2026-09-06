@@ -103,7 +103,7 @@ export const UI_STOPWORDS = new Set([
   'maps', 'google maps', 'gmail', 'youtube', 'whatsapp', 'tab', 'new tab', 'bookmarks',
   'all bookmarks', 'dashboard', 'clerk', 'gemini', 'ask gemini', 'chrome', 'browser',
   'geforce', 'geforce now', 'send anywhere', 'vista', 'modeltesting', 'github', 'github.com',
-  'youknow', 'gen z', 'gen'
+  'youknow', 'gen z', 'gen', 'namaste'
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
@@ -211,6 +211,7 @@ export const REGEX_RULES = [
 const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
 const BIRTH_HEADER_REGEX = /(?:Place of Birth):\s*([^\n*#]+)/gi;
 const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
+const CONVERSATIONAL_NAME_REGEX = /(?:\b[mM]y name is|\b[rR]egistered (?:simply )?as|\b[iI]nvestigating [oO]fficer:\s*|\b[cC]omplainant:\s*)\s*([A-Z][a-zA-Z'’]+(?:[- ][A-Z][a-zA-Z'’]+){1,3})/g;
 
 // --- 3. UPGRADED COMPREHENSIVE ADDRESS VOCABULARIES ---
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -319,6 +320,19 @@ const UPGRADED_ADDRESS_PATTERNS = [
   })()
 ];
 
+function findWordStart(str, query, fromIdx) {
+  let idx = fromIdx;
+  while (idx < str.length) {
+    idx = str.indexOf(query, idx);
+    if (idx === -1) return -1;
+    if (idx === 0 || !/\w/.test(str[idx - 1])) {
+      return idx;
+    }
+    idx++;
+  }
+  return -1;
+}
+
 function extractNERSpans(rawResults, line) {
   const entities = [];
   let current = null;
@@ -330,11 +344,18 @@ function extractNERSpans(rawResults, line) {
     const minScore = 0.70; 
     if (token.score < minScore) continue;
 
-    if (current && (isSubword || (token.entity.startsWith('I-') && current.type === tagType))) {
+    const isConsecutive = current && current.tokens.length > 0 &&
+      (token.index === current.tokens[current.tokens.length - 1].index + 1);
+
+    if (current && isConsecutive && (isSubword || (token.entity.startsWith('I-') && current.type === tagType))) {
       current.tokens.push(token);
     } else {
       if (current) entities.push(current);
-      current = { type: tagType, tokens: [token] };
+      if (!isSubword) {
+        current = { type: tagType, tokens: [token] };
+      } else {
+        current = null;
+      }
     }
   }
   if (current) entities.push(current);
@@ -348,10 +369,13 @@ function extractNERSpans(rawResults, line) {
     const isAddress = ent.type === 'LOC' || ent.type === 'ADDRESS' || ent.type === 'ADDR';
     if (!isName && !isAddress) continue;
 
-    const firstClean = ent.tokens[0].word.replace(/^##/, '').toLowerCase();
-    const lastClean = ent.tokens[ent.tokens.length - 1].word.replace(/^##/, '').toLowerCase();
+    const meaningfulTokens = ent.tokens.filter(t => !/^[.,;:!?"')\]]+$/.test(t.word));
+    if (meaningfulTokens.length === 0) continue;
 
-    const firstIdx = lineLower.indexOf(firstClean, searchIdx);
+    const firstClean = meaningfulTokens[0].word.replace(/^##/, '').toLowerCase();
+    const lastClean = meaningfulTokens[meaningfulTokens.length - 1].word.replace(/^##/, '').toLowerCase();
+
+    const firstIdx = findWordStart(lineLower, firstClean, searchIdx);
     if (firstIdx === -1) continue;
 
     let lastIdx = lineLower.indexOf(lastClean, firstIdx);
@@ -366,7 +390,12 @@ function extractNERSpans(rawResults, line) {
       }
     }
 
-    const extractedText = line.substring(firstIdx, endIdx).trim();
+    let extractedText = line.substring(firstIdx, endIdx).trim();
+    // Trim accidental trailing punctuation so tokens like '.' don't expand entity boundaries
+    const trimmedEnd = extractedText.replace(/[.,;:!?"')\]]+$/, '');
+    endIdx -= (extractedText.length - trimmedEnd.length);
+    extractedText = trimmedEnd;
+
     const cleanLower = extractedText.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
 
     // Skip short tokens (< 3 chars), UI stopwords, strings without alphabets, company/organization names, or country names
@@ -470,6 +499,13 @@ export async function redactTextContent(rawText, onProgress = null) {
   while ((cm = CAPS_NAME_HEADER_REGEX.exec(rawText)) !== null) {
     const nameStr = cm[1].trim();
     const start = cm.index + cm[0].indexOf(nameStr);
+    addSpan(start, start + nameStr.length, 'NAME');
+  }
+
+  let cnm;
+  while ((cnm = CONVERSATIONAL_NAME_REGEX.exec(rawText)) !== null) {
+    const nameStr = cnm[1].trim();
+    const start = cnm.index + cnm[0].indexOf(nameStr);
     addSpan(start, start + nameStr.length, 'NAME');
   }
 
