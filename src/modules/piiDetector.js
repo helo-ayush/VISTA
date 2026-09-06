@@ -7,7 +7,7 @@ env.allowRemoteModels = true;
 env.useBrowserCache = typeof window !== 'undefined';
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
-const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN|Order ID|Order No|Tracking ID|Consignment|Record ID|All Bookmarks|New Tab|Send Anywhere|GeForce NOW|Google Search)\b/i;
+const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate\s*(?:Mobile|Phone|Landline|Number|No\.?)|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN|Order ID|Order No|Tracking ID|Consignment|Record ID|All Bookmarks|New Tab|Send Anywhere|GeForce NOW|Google Search|Total Invoice Amount|Grand Total|Total Amount|Net Taxable|Central GST|State GST|CGST|SGST|IGST|Base Price|Discount Applied|Subtotal|HSN Code|Package Dimensions|Package Weight|Quantity|Unit Price|Payment Mode)\b/i;
 
 let cachedNERPipeline = null;
 export const activeNEREngineName = 'Local Fine-Tuned MiniLM-L6 (Offline WASM) + Regex';
@@ -103,11 +103,25 @@ export const UI_STOPWORDS = new Set([
   'maps', 'google maps', 'gmail', 'youtube', 'whatsapp', 'tab', 'new tab', 'bookmarks',
   'all bookmarks', 'dashboard', 'clerk', 'gemini', 'ask gemini', 'chrome', 'browser',
   'geforce', 'geforce now', 'send anywhere', 'vista', 'modeltesting', 'github', 'github.com',
-  'youknow', 'gen z', 'gen', 'namaste', 'bleach', 'season', 'untitled', 'watc', 'watch', 'fil'
+  'youknow', 'gen z', 'gen', 'namaste', 'bleach', 'season', 'untitled', 'watc', 'watch', 'fil',
+  'metformin', 'atorvastatin', 'telmisartan', 'paracetamol', 'creatinine', 'glucose', 'cholesterol',
+  'triglycerides', 'prandial', 'dyspnea', 'palpitations', 'hemoglobin', 'electrolytes', 'echocardiography',
+  'ayushman', 'bharat', 'complaints', 'vitals', 'investigation', 'findings', 'medication',
+  'bluedart', 'omnitech', 'razorpay', 'waybill', 'delhivery', 'shipment', 'consignment', 'courier',
+  'upi', 'vpa', 'imps', 'neft', 'rtgs', 'cif', 'micr', 'nominee', 'sku', 'hsn',
+  'livechat', 'intercom', 'zendesk', 'slack', 'salesforce', 'gateway'
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
-export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore)\b/i;
+export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore|BlueDart|OmniTech|Razorpay|Waybill|Delhivery|FedEx|DHL|DTDC|Shadowfax|Xpressbees|Shiprocket|Ekart|LiveChat|Intercom|Zendesk|Slack|Salesforce)\b/i;
+
+// Number words & monetary currency vocabulary to reject amount-in-words false positives
+export const NUMBER_WORDS = new Set([
+  'zero','one','two','three','four','five','six','seven','eight','nine','ten',
+  'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty',
+  'thirty','forty','fifty','sixty','seventy','eighty','ninety','hundred','thousand','lakh','crore',
+  'million','billion','trillion','and','only','inr','usd','eur','gbp','rs','rupees','rupee','cents','dollars','dollar'
+]);
 
 // Comprehensive Indian and Global major cities (to prevent NER from classifying city names as person names)
 export const KNOWN_CITIES_SET = new Set([
@@ -134,8 +148,8 @@ export const REGEX_RULES = [
   // 1. Email Addresses (handles standard & OCR spaced formats like name@ gmail.com)
   { pattern: /\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
 
-  // 2. UPI IDs / VPA
-  { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
+  // 2. UPI IDs / VPA (non-capturing group so full VPA name@handle is always redacted)
+  { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(?:okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
 
   // 3. Social Media & Platform Handles (@username, @rohitsinghal)
   { pattern: /(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/gi, tag: 'HANDLE' },
@@ -143,15 +157,16 @@ export const REGEX_RULES = [
   // 4. Labeled Social Handles (Handle: @user, Username: abc_12)
   { pattern: /(?:Handle|Username)\s*[:#]\s*#?\s*([a-zA-Z0-9_.-]{3,32})\b/gi, tag: 'HANDLE' },
 
-  // 4b. Employee, Record, Badge, Candidate & Token IDs (ID: EMP-2024-88391)
-  { pattern: /\b(?:Record\s*ID|Employee\s*(?:ID|Code|No\.?)|Badge\s*ID|Staff\s*ID|Candidate\s*ID|Member\s*ID)\s*[:#]\s*#?([A-Za-z0-9_-]{3,32})\b/gi, tag: 'ID' },
-  { pattern: /\b(?:EMP|BADGE|REC|CAND)[-_]\d{4,}[-_]?[A-Za-z0-9]*\b/gi, tag: 'ID' },
+  // 4b. Employee, Customer, CIF, Ticket, Incident, Record, Badge, Candidate & Token IDs (ID: EMP-2024-88391, Ticket #TKT-889104)
+  { pattern: /\b(?:Ticket(?:\s*(?:ID|Id|No\.?|Number|#|Ref\.?))?|Customer\s*(?:ID|Id|No\.?|Number|#)|CIF(?:\s*(?:ID|Id|No\.?|Number|#))?|Client\s*(?:ID|Id|No\.?|Number|#)|Record\s*ID|Employee\s*(?:ID|Code|No\.?)|Badge\s*ID|Staff\s*ID|Candidate\s*ID|Member\s*ID)\s*[:#]\s*#?([A-Za-z0-9_-]{3,32})\b/gi, tag: 'ID' },
+  { pattern: /\b(?:EMP|BADGE|REC|CAND|CIF|TKT|INC|TICKET)[-_]\d{4,}[-_]?[A-Za-z0-9]*\b/gi, tag: 'ID' },
 
   // 5. URLs & Personal Websites
   { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_+.~#?&//=]*)?/gi, tag: 'URL' },
 
-  // 6. Credit & Debit Cards (Evaluated before Aadhaar; covers Visa, Mastercard, RuPay, Maestro, Discover, Amex, Diners, JCB, UnionPay & Generic 16-digit cards)
+  // 6. Credit & Debit Cards (Evaluated before Aadhaar; covers standard 16-digit cards, Amex 15-digit, Diners, JCB, UnionPay, and PCI masked cards like 6071-XXXX-XXXX-8921)
   { pattern: /\b(?:4\d{3}|5[0-8]\d{2}|6[0-5]\d{2}|2[2-7]\d{2}|8[12]\d{2}|3[47]\d{2}|3(?:0[0-5]|[68]\d)\d|35\d{2}|62\d{2})[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b|\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b/g, tag: 'CARD' },
+  { pattern: /\b\d{4}[-\s]?[X*x]{4}[-\s]?[X*x]{4}[-\s]?\d{4}\b|\b\d{6}[-\s]?[X*x]{6}[-\s]?\d{4}\b/g, tag: 'CARD' },
 
   // 7. Card Verification Value (CVV/CVC)
   { pattern: /\b(?:CVV|CVC|CVV2|CVC2|Security Code|Card Verification Value(?:\s*\(CVV\))?)\s*(?:[:#=]|of|is)?\s*([0-9]{3,4})\b/gi, tag: 'CVV' },
@@ -160,11 +175,14 @@ export const REGEX_RULES = [
   { pattern: /\b(?:Exp(?:ir(?:y|ation))?(?:\s*Date)?|valid thru|expires?)\s*(?:[:#=]|of|is|on)?\s*((?:0[1-9]|1[0-2])[\/-](?:20\d{2}|\d{2}))\b/gi, tag: 'CARD_EXPIRY' },
 
   // 9. E-Commerce Order IDs, Consignments & Tracking Numbers (Flipkart OD, Amazon, etc.)
-  { pattern: /\b(?:Order\s*(?:ID|Id|No\.?|Number|#)|Consignment\s*(?:No\.?|#)?|Tracking\s*(?:ID|Id|No\.?|#)?|Waybill\s*(?:No\.?|#)?|AWB\s*(?:No\.?|#)?)\s*[:#-]?\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ORDER_ID' },
+  { pattern: /\b(?:Order|Consignment|Tracking|Waybill|AWB|Shipment|Dispatch)\s*(?:ID|Id|No\.?|Number|#|Ref\.?|Reference)?\s*[:#-]?\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ORDER_ID' },
   { pattern: /\bOrder\s*[:#-]\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ORDER_ID' },
   { pattern: /\b(?:My Orders|Orders?)\s*[>»/|:-]\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{6,32})\b/gi, tag: 'ORDER_ID' },
   { pattern: /\b[oO][dD]\d{16,20}\b/g, tag: 'ORDER_ID' },
   { pattern: /\b\d{3}-\d{7}-\d{7}\b/g, tag: 'ORDER_ID' },
+  { pattern: /\b(?:Txn|Transaction|Payment|Auth(?:\s*Code)?|UTR|IMPS(?:\s*Ref)?|NEFT(?:\s*Ref)?|RTGS(?:\s*Ref)?|Bank\s*Ref(?:erence)?)\s*(?:ID|Id|No\.?|Number|#|Ref\.?|Reference)?\s*[:#-]?\s*#?((?=[A-Za-z0-9/-]*\d)[A-Za-z0-9/-]{6,36})\b/gi, tag: 'ID' },
+  { pattern: /\b(?:Invoice\s*(?:Ref\.?|Reference|No\.?|Number|#))\s*[:#-]\s*#?((?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{4,32})\b/gi, tag: 'ID' },
+  { pattern: /\b(?:UPI\s*[/:-]\s*(\d{10,16})|UPI\s*(?:Ref|Reference|Txn|Transaction)\s*[:#-]?\s*#?([A-Za-z0-9/-]{6,36}))\b/gi, tag: 'ID' },
 
   // 10. IBAN (Requires real ISO country code)
   { pattern: new RegExp(String.raw`\b(?:${IBAN_COUNTRIES})\d{2}(?:[\s-]?\d{4}){3,7}\b`, 'gi'), tag: 'IBAN' },
@@ -207,7 +225,13 @@ export const REGEX_RULES = [
   // 21. Belgian National ID / BIS
   { pattern: /\b\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2}\b/g, tag: 'NATIONAL_ID' },
 
-  // 22. Passports (Indian 8-char, US/Global alphanumeric)
+  // 19. Ayushman Bharat Health Account (ABHA 14-digit ID)
+  { pattern: /\b(?:ABHA(?:\s*(?:ID|Number|No\.?))?\s*[:#-]?\s*)?(\d{2}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4})\b/gi, tag: 'ABHA' },
+
+  // 19b. Health & General Insurance Policy Numbers (e.g. TPA-MED-8892104)
+  { pattern: /\b(?:Policy\s*(?:No\.?|Number|#)|Insurance\s*(?:Policy|No\.?|#)?|TPA(?:\s*(?:ID|No\.?|#))?)\s*[:#-]?\s*([A-Za-z0-9/-]{6,24})\b/gi, tag: 'POLICY_NUMBER' },
+
+  // 20. Passports (Indian 8-char, US/Global alphanumeric)
   { pattern: /\b[A-PR-WYa-pr-wy][1-9]\d{6}\b|\b[A-Z]\d{7,8}[A-Z]?\b/g, tag: 'PASSPORT' },
 
   // 20. Phone Numbers: Indian Mobile (all formats: +91 98765 43210, 98765 43210, 9876543210, (+91 98765 43210), 0-prefixed)
@@ -243,10 +267,10 @@ export const REGEX_RULES = [
 ];
 
 // --- 2. CONTEXTUAL ADDRESS & BIRTHPLACE HEADERS ---
-const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
+const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Primary Residential Address|Permanent Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address|Home Address|Local Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
 const BIRTH_HEADER_REGEX = /(?:Place of Birth):\s*([^\n*#]+)/gi;
-const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
-const FULL_NAME_HEADER_REGEX = /(?:Full Legal Name|Legal Name|Cardholder Name|Full Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name)\s*:\s*([A-Za-z.'’]+(?:[ \t]+[A-Za-z.'’]+)+(?:,\s*(?:Jr\.?|Sr\.?|II|III|IV|MD|PhD|Esq\.?))?)/gi;
+const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
+const FULL_NAME_HEADER_REGEX = /(?:Patient Legal Name|Patient Name|Full Legal Name|Legal Name|Cardholder Name|Full Name|Applicant Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Attending Senior Consultant|Attending Physician|Doctor Name|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife)\s*:\s*([A-Za-z.'’\-]+(?:[ \t]+[A-Za-z.'’\-]+)+(?:,\s*(?:Jr\.?|Sr\.?|II|III|IV|MD|PhD|Esq\.?|RN|MBBS|MS|FACS))?)/gi;
 const CONVERSATIONAL_NAME_REGEX = /(?:\b[mM]y name is|\b[rR]egistered (?:simply )?as|\b[iI]nvestigating [oO]fficer:\s*|\b[cC]omplainant:\s*)\s*([A-Z][a-zA-Z'’]+(?:[- ][A-Z][a-zA-Z'’]+){1,3})/g;
 
 // --- 3. UPGRADED COMPREHENSIVE ADDRESS VOCABULARIES ---
@@ -303,7 +327,7 @@ const UPGRADED_ADDRESS_PATTERNS = [
 
   // C. Indian Style
   new RegExp(
-    String.raw`\b(?:Flat|Plot|House|Shop|Office|Suite|Apt|Door)\s*(?:No\.?|#)?\s*[\w\/-]+[,\s]+(?:[\w\s]+(?:Nagar|Colony|Sector|Phase|Enclave|Road|Marg|Street|Layout|Bazaar|Salai|Society|Apartments|Heights|Tower))\b`,
+    String.raw`\b(?:Flat|Plot|House|Shop|Office|Suite|Apt|Door)\s*(?:No\.?|#)?\s*[\w\/-]+[,\s]+(?:[\w\s]+(?:Nagar|Colony|Sector|Phase|Enclave|Road|Marg|Street|Layout|Bazaar|Salai|Society|Apartments|Heights|Tower|Residency|Palms|Villa|Gardens|Park))\b`,
     'gi'),
 
   // D. European street-name-first
@@ -340,7 +364,7 @@ const UPGRADED_ADDRESS_PATTERNS = [
   /\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/g, 
   /\b[ABCEGHJ-NPRSTVXY]\d[A-Z][ -]?\d[A-Z]\d\b/g,         
   /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,  
-  /\b[1-9]\d{2}\s?\d{3}\b/g,                              
+  /(?<![-_#A-Za-z0-9/])\b[1-9]\d{2}\s?\d{3}\b(?![_#A-Za-z0-9/-])/g,                              
 
   // K. GPS Coordinates
   /[-+]?\d{1,2}\.\d{4,}\s*°?\s*[NSns]?\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?/g,
@@ -404,13 +428,13 @@ function extractNERSpans(rawResults, line) {
     const isAddress = ent.type === 'LOC' || ent.type === 'ADDRESS' || ent.type === 'ADDR';
     if (!isName && !isAddress) continue;
 
-    const meaningfulTokens = ent.tokens.filter(t => !/^[.,;:!?"')\]]+$/.test(t.word));
+    const meaningfulTokens = ent.tokens.filter(t => !/^[^\w\s]+$/.test(t.word));
     if (meaningfulTokens.length === 0) continue;
 
     const firstClean = meaningfulTokens[0].word.replace(/^##/, '').toLowerCase();
     const lastClean = meaningfulTokens[meaningfulTokens.length - 1].word.replace(/^##/, '').toLowerCase();
 
-    const firstIdx = findWordStart(lineLower, firstClean, searchIdx);
+    let firstIdx = findWordStart(lineLower, firstClean, searchIdx);
     if (firstIdx === -1) continue;
 
     let lastIdx = lineLower.indexOf(lastClean, firstIdx);
@@ -426,10 +450,13 @@ function extractNERSpans(rawResults, line) {
     }
 
     let extractedText = line.substring(firstIdx, endIdx).trim();
-    // Trim accidental trailing punctuation so tokens like '.' don't expand entity boundaries
-    const trimmedEnd = extractedText.replace(/[.,;:!?"')\]]+$/, '');
+    // Trim accidental trailing or leading punctuation/brackets so tokens don't expand entity boundaries
+    const trimmedEnd = extractedText.replace(/[^\w]+$/, '');
     endIdx -= (extractedText.length - trimmedEnd.length);
     extractedText = trimmedEnd;
+    const trimmedStart = extractedText.replace(/^[^\w]+/, '');
+    firstIdx += (extractedText.length - trimmedStart.length);
+    extractedText = trimmedStart;
 
     const cleanLower = extractedText.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
 
@@ -472,6 +499,21 @@ function extractNERSpans(rawResults, line) {
         searchIdx = endIdx;
         continue;
       }
+    }
+
+    // Reject amounts or numbers in words (e.g. "INR Twenty-Six Thousand Five Hundred Thirty-Eight") misclassified as ADDRESS or NAME
+    const alphaWords = cleanLower.split(/[^a-zA-Z]+/).filter(w => w.length >= 2);
+    if (alphaWords.length > 0 && alphaWords.every(w => NUMBER_WORDS.has(w))) {
+      searchIdx = endIdx;
+      continue;
+    }
+
+    // Reject dates (e.g. "05-Sep-2026", "Sep-2026", "March 2026", "2026-09-05") misclassified as ADDRESS or NAME
+    const MONTH_NAMES = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+    const DATE_PATTERN = new RegExp(String.raw`^(?:\d{1,2}[-\/\s])?(?:${MONTH_NAMES})[-\/\s,]*\d{2,4}$|^\d{4}[-\/\s](?:${MONTH_NAMES}|\d{1,2})[-\/\s]\d{1,2}$`, 'i');
+    if (DATE_PATTERN.test(cleanLower)) {
+      searchIdx = endIdx;
+      continue;
     }
 
     // Reject code identifiers, repo slugs, file paths, or URLs (containing or adjacent to '/' or '_')
@@ -590,14 +632,14 @@ export async function redactTextContent(rawText, onProgress = null) {
   while ((hm = ADDRESS_HEADER_REGEX.exec(rawText)) !== null) {
     const addr = hm[1].trim();
     const start = hm.index + hm[0].indexOf(addr);
-    addSpan(start, start + addr.length, 'ADDRESS');
+    addSpan(start, start + addr.length, 'ADDRESS', true);
   }
 
   let bm;
   while ((bm = BIRTH_HEADER_REGEX.exec(rawText)) !== null) {
     const place = bm[1].trim();
     const start = bm.index + bm[0].indexOf(place);
-    addSpan(start, start + place.length, 'LOCATION');
+    addSpan(start, start + place.length, 'LOCATION', true);
   }
 
   let cm;
@@ -687,7 +729,13 @@ export async function redactTextContent(rawText, onProgress = null) {
       const isAddressMerge = (last.tag === 'ADDRESS' || last.tag === 'LOCATION') && 
                              (r.tag === 'ADDRESS' || r.tag === 'LOCATION');
 
-      if (isAddressMerge && isCleanSeparator) {
+      const isSameLineAddressComponent = isAddressMerge &&
+        !gap.includes('\n') &&
+        gap.length <= 25 &&
+        /^[,\s\w-]+$/.test(gap) &&
+        !/\b(?:to|and|or|is|was|are|were|between|from)\b/i.test(gap);
+
+      if (isAddressMerge && (isCleanSeparator || isSameLineAddressComponent)) {
         last.tag = 'ADDRESS';
         last.end = Math.max(last.end, r.end);
       } else if (!gap.includes('\n') && isCleanSeparator && gap.length <= 6 && last.tag === r.tag) {
