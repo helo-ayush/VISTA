@@ -29,7 +29,7 @@ LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDR", "I-ADDR"]
 ID2LABEL = {i: label for i, label in enumerate(LABEL_LIST)}
 LABEL2ID = {label: i for i, label in enumerate(LABEL_LIST)}
 
-BASE_MODEL = "microsoft/MiniLM-L6-v2"
+BASE_MODEL = "nreimers/MiniLM-L6-H384-uncased"
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output_model")
 ONNX_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
 
