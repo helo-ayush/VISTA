@@ -5,6 +5,7 @@ import { redactTextContent } from './modules/piiDetector.js';
 import { findBoxesToRedact, renderCanvasOverlay } from './modules/redactionCanvas.js';
 import PipelineStats from './components/PipelineStats.jsx';
 import DocumentCanvas from './components/DocumentCanvas.jsx';
+import ImageZoomModal from './components/ImageZoomModal.jsx';
 
 const App = () => {
   // Input & Processing State
@@ -15,6 +16,7 @@ const App = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [pipelineStats, setPipelineStats] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
 
   // Extracted Pipeline Outputs
   const [detectedFaces, setDetectedFaces] = useState([]);
@@ -195,18 +197,13 @@ const App = () => {
 
   return (
     <div className='flex flex-col w-full items-center py-6 px-4 max-w-5xl mx-auto min-h-screen font-sans text-gray-900'>
-      {/* Header */}
-      <div className='flex flex-col items-center gap-1.5 text-center mb-6'>
-        <div className='flex items-center gap-2'>
-          <span className='px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800'>
-            VISTA AI
-          </span>
-          <h1 className='text-2xl sm:text-3xl font-black text-gray-900 tracking-tight'>
-            Screenshot Privacy Redactor
-          </h1>
-        </div>
-        <p className='text-xs sm:text-sm text-gray-600 max-w-xl'>
-          Upload a screenshot to detect faces, extract text, identify PII, and apply semantic blurs.
+      {/* Artistic Clean Header */}
+      <div className='flex flex-col items-center gap-2 text-center mb-7'>
+        <h1 className='text-3xl sm:text-4xl font-black text-gray-900 tracking-tight'>
+          Screenshot Privacy Redactor
+        </h1>
+        <p className='text-xs sm:text-sm text-gray-500 max-w-lg'>
+          On-device neural face detection, high-speed OCR, and semantic privacy masking.
         </p>
       </div>
 
@@ -225,11 +222,8 @@ const App = () => {
         }`}
       >
         <div className='flex flex-col items-center sm:items-start text-center sm:text-left gap-1'>
-          <div className='flex items-center gap-2 text-gray-800 font-bold text-base'>
-            <svg className='w-5 h-5 text-indigo-600' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' />
-            </svg>
-            <span>Upload or Paste Screenshot</span>
+          <div className='text-gray-900 font-bold text-base tracking-tight'>
+            Upload or Paste Screenshot
           </div>
           <p className='text-xs text-gray-500'>
             Drag & drop, click to select, or press <kbd className='px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono'>Ctrl+V</kbd> anywhere to paste.
@@ -331,45 +325,46 @@ const App = () => {
               redactedBoxesCount={redactedBoxes.length}
               facesCount={detectedFaces.length}
               onDownload={downloadRedactedImage}
+              onOpenZoom={() => setIsZoomOpen(true)}
             />
           </div>
 
           {/* Level Output Inspection Column (5 cols) */}
           <div className='lg:col-span-5 flex flex-col gap-3'>
-            {/* Inspector Tab Switcher */}
-            <div className='bg-gray-100 p-1 rounded-xl flex items-center gap-1 text-xs font-bold text-gray-600'>
+            {/* Inspector Tab Switcher (Clean, Zero Emojis) */}
+            <div className='bg-gray-100 p-1 rounded-xl flex items-center gap-1 text-xs font-semibold text-gray-600'>
               <button
+                type='button'
                 onClick={() => setInspectorTab('pii')}
-                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer text-center ${
                   inspectorTab === 'pii'
-                    ? 'bg-white text-indigo-700 shadow-xs'
+                    ? 'bg-white text-indigo-700 font-bold shadow-xs'
                     : 'hover:text-gray-900'
                 }`}
               >
-                <span>🛡️</span>
-                <span>PII Model</span>
+                PII Model
               </button>
               <button
+                type='button'
                 onClick={() => setInspectorTab('ocr')}
-                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer text-center ${
                   inspectorTab === 'ocr'
-                    ? 'bg-white text-emerald-700 shadow-xs'
+                    ? 'bg-white text-emerald-700 font-bold shadow-xs'
                     : 'hover:text-gray-900'
                 }`}
               >
-                <span>🔤</span>
-                <span>OCR Results</span>
+                OCR Results
               </button>
               <button
+                type='button'
                 onClick={() => setInspectorTab('faces')}
-                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer text-center ${
                   inspectorTab === 'faces'
-                    ? 'bg-white text-purple-700 shadow-xs'
+                    ? 'bg-white text-purple-700 font-bold shadow-xs'
                     : 'hover:text-gray-900'
                 }`}
               >
-                <span>👤</span>
-                <span>Face Boxes</span>
+                Face Boxes
               </button>
             </div>
 
@@ -515,6 +510,17 @@ const App = () => {
           </div>
         </div>
       )}
+
+      {/* Fullscreen Interactive Pan & Zoom Modal */}
+      <ImageZoomModal
+        isOpen={isZoomOpen}
+        onClose={() => setIsZoomOpen(false)}
+        canvasRef={canvasRef}
+        imageFileName={imageFile?.name}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        onDownload={downloadRedactedImage}
+      />
     </div>
   );
 };
