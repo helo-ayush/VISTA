@@ -59,8 +59,15 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       continue;
     }
 
-    // Reject code identifiers, repo slugs, file paths, or URLs (containing '/' or '_')
-    if (cleanLower.includes('_') || itemText.includes('/') || itemText.includes('_')) {
+    // Reject standalone code identifiers, repo slugs, file paths, or URLs (e.g. "helo-ayush/VISTA_PII")
+    // Do NOT reject lines containing dates (12/30), parentage (S/o), or bank account labels (A/c)
+    if (/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(itemText) && !/\d{1,2}\/\d{1,2}/.test(itemText)) {
+      continue;
+    }
+    if (/^(?:https?:\/\/|www\.)\S+$/i.test(itemText)) {
+      continue;
+    }
+    if (/^[a-zA-Z0-9]+_[a-zA-Z0-9_]+$/.test(cleanLower)) {
       continue;
     }
 
@@ -156,18 +163,28 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       }
     }
 
-    // 2. High-precision direct regex rules on this line (PHONE, AADHAAR, PAN, EMAIL, UPI)
+    // 2. High-precision direct regex rules on this line (PHONE, CARD, AADHAAR, PAN, EMAIL, UPI, ACCOUNT_NUMBER, CVV, etc.)
     for (const rule of REGEX_RULES) {
-      if (rule.tag === 'ADDRESS' || rule.tag === 'ACCOUNT_NUMBER') continue;
+      if (rule.tag === 'ADDRESS') continue;
       const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
       let m;
       while ((m = pat.exec(itemText)) !== null) {
-        matchedSubSpans.push({
-          start: m.index,
-          end: m.index + m[0].length,
-          tag: rule.tag,
-          value: m[0]
-        });
+        if (m[1]) {
+          const valStart = m.index + m[0].lastIndexOf(m[1]);
+          matchedSubSpans.push({
+            start: valStart,
+            end: valStart + m[1].length,
+            tag: rule.tag,
+            value: m[1]
+          });
+        } else {
+          matchedSubSpans.push({
+            start: m.index,
+            end: m.index + m[0].length,
+            tag: rule.tag,
+            value: m[0]
+          });
+        }
       }
     }
 

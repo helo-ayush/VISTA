@@ -109,6 +109,23 @@ export const UI_STOPWORDS = new Set([
 // Company, Organization, Corporate & Brand detection filter (never PII)
 export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore)\b/i;
 
+// Comprehensive Indian and Global major cities (to prevent NER from classifying city names as person names)
+export const KNOWN_CITIES_SET = new Set([
+  'kolkata', 'calcutta', 'mumbai', 'bombay', 'delhi', 'new delhi', 'bengaluru', 'bangalore',
+  'chennai', 'madras', 'hyderabad', 'ahmedabad', 'pune', 'surat', 'jaipur', 'lucknow',
+  'kanpur', 'nagpur', 'indore', 'thane', 'bhopal', 'visakhapatnam', 'patna', 'vadodara',
+  'ghaziabad', 'ludhiana', 'agra', 'nashik', 'faridabad', 'meerut', 'rajkot', 'varanasi',
+  'srinagar', 'aurangabad', 'dhanbad', 'amritsar', 'navi mumbai', 'allahabad', 'prayagraj',
+  'ranchi', 'howrah', 'coimbatore', 'jabalpur', 'gwalior', 'vijayawada', 'jodhpur', 'madurai',
+  'raipur', 'kota', 'guwahati', 'chandigarh', 'solapur', 'bareilly', 'moradabad', 'mysore',
+  'gurgaon', 'gurugram', 'aligarh', 'jalandhar', 'bhubaneswar', 'salem', 'warangal',
+  'thiruvananthapuram', 'gorakhpur', 'bikaner', 'amravati', 'noida', 'jamshedpur', 'bhilai',
+  'cuttack', 'kochi', 'nellore', 'bhavnagar', 'dehradun', 'durgapur', 'asansol', 'rourkela',
+  'ajmer', 'jamnagar', 'ujjain', 'siliguri', 'jhansi', 'jammu', 'mangalore', 'udaipur',
+  'mathura', 'patiala', 'rohtak', 'shimla', 'panaji', 'new york', 'london', 'paris',
+  'tokyo', 'singapore', 'sydney', 'toronto', 'dubai', 'abu dhabi', 'doha', 'riyadh'
+]);
+
 // Valid ISO 3166-1 alpha-2 country codes used in real international IBANs
 const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR|GE|DE|GI|GR|GL|GT|HU|IS|IE|IL|IT|JO|KZ|XK|KW|LV|LB|LI|LT|LU|MK|MT|MR|MU|MD|MC|ME|NL|NO|PK|PS|PL|PT|QA|RO|SM|SA|RS|SK|SI|ES|SE|CH|TN|TR|AE|GB|VA';
 
@@ -129,52 +146,58 @@ export const REGEX_RULES = [
   // 5. URLs & Personal Websites
   { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_+.~#?&//=]*)?/gi, tag: 'URL' },
 
-  // 4. IBAN (Requires real ISO country code, eliminates Order IDs like OD438...)
+  // 6. Credit & Debit Cards (Evaluated before Aadhaar; covers Visa, Mastercard, RuPay, Maestro, Discover, Amex, Diners, JCB, UnionPay & Generic 16-digit cards)
+  { pattern: /\b(?:4\d{3}|5[0-8]\d{2}|6[0-5]\d{2}|2[2-7]\d{2}|8[12]\d{2}|3[47]\d{2}|3(?:0[0-5]|[68]\d)\d|35\d{2}|62\d{2})[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b|\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b|\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b/g, tag: 'CARD' },
+
+  // 7. Card Verification Value (CVV/CVC)
+  { pattern: /\b(?:CVV|CVC|CVV2|CVC2|Security Code|Card Verification Value(?:\s*\(CVV\))?)\s*(?:[:#=]|of|is)?\s*([0-9]{3,4})\b/gi, tag: 'CVV' },
+
+  // 8. Card Expiration Date
+  { pattern: /\b(?:Exp(?:ir(?:y|ation))?(?:\s*Date)?|valid thru|expires?)\s*(?:[:#=]|of|is|on)?\s*((?:0[1-9]|1[0-2])[\/-](?:20\d{2}|\d{2}))\b/gi, tag: 'CARD_EXPIRY' },
+
+  // 9. IBAN (Requires real ISO country code, eliminates Order IDs like OD438...)
   { pattern: new RegExp(String.raw`\b(?:${IBAN_COUNTRIES})\d{2}(?:[\s-]?\d{4}){3,7}\b`, 'gi'), tag: 'IBAN' },
 
-  // 5. Indian Aadhaar Card (12 digits) & Masked
-  { pattern: /\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b/g, tag: 'AADHAAR' },
-  { pattern: /\b[X]{4}[ -][X]{4}[ -]\d{4}\b/g, tag: 'AADHAAR' },
+  // 10. Indian Aadhaar Card (12 digits) & Masked - Strict boundaries: must not be part of a 16-digit card or longer number
+  { pattern: /(?<!\d[-\s]?)\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
+  { pattern: /(?<![X\d][-\s]?)\b[X]{4}[ -][X]{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
 
-  // 6. Indian PAN Card
+  // 11. Indian PAN Card
   { pattern: /\b[A-Z]{5}\d{4}[A-Z]\b/g, tag: 'PAN' },
 
-  // 7. Indian TAN (Tax Deduction Account Number)
+  // 12. Indian TAN (Tax Deduction Account Number)
   { pattern: /\b[A-Z]{4}\d{5}[A-Z]\b/g, tag: 'TAN' },
 
-  // 8. Indian GSTIN
+  // 13. Indian GSTIN
   { pattern: /\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/g, tag: 'GSTIN' },
 
-  // 9. Indian Bank IFSC Code
-  { pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, tag: 'IFSC' },
+  // 14. Indian Bank IFSC Code (Supports standard and OCR 'o' / 'O' variations)
+  { pattern: /\b[A-Za-z]{4}[0oO][A-Za-z0-9]{6}\b/gi, tag: 'IFSC' },
 
-  // 10. Indian Voter ID
+  // 15. Indian Voter ID
   { pattern: /\b[A-Z]{3}\d{7}\b/g, tag: 'VOTER_ID' },
 
-  // 11. Indian Driving License
+  // 16. Indian Driving License
   { pattern: /\b[A-Z]{2}[- ]?\d{2}[- ]?(?:19|20)\d{2}[- ]?\d{7}\b/g, tag: 'DRIVING_LICENSE' },
 
-  // 12. Student & Medical Reference Tokens (Excludes generic corporate tokens)
+  // 17. Student & Medical Reference Tokens (Excludes generic corporate tokens)
   { pattern: /\b(?:AUS-STU-[\w-]+|MRN-[\w-]+|TX-MED-[\w-]+)\b/g, tag: 'ID' },
 
-  // 13. Vehicle Registration (RC & Bharat Series BH)
+  // 18. Vehicle Registration (RC & Bharat Series BH)
   { pattern: /\b[A-Z]{2}[- ]?\d{1,2}[- ]?(?:[A-Z]{1,3}[- ]?)?\d{4}\b|\b\d{2}\s?BH\s?\d{4}\s?[A-Z]{1,2}\b/g, tag: 'VEHICLE_RC' },
 
-  // 14. US Social Security Number (SSN) & ITIN
+  // 19. US Social Security Number (SSN) & ITIN
   { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, tag: 'SSN' },
   { pattern: /\b9\d{2}-\d{2}-\d{4}\b/g, tag: 'ITIN' },
 
-  // 15. UK National Insurance Number (NINO)
+  // 20. UK National Insurance Number (NINO)
   { pattern: /\b[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]\b/gi, tag: 'UK_NINO' },
 
-  // 16. Belgian National ID / BIS
+  // 21. Belgian National ID / BIS
   { pattern: /\b\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2}\b/g, tag: 'NATIONAL_ID' },
 
-  // 17. Passports (Indian 8-char, US/Global alphanumeric)
+  // 22. Passports (Indian 8-char, US/Global alphanumeric)
   { pattern: /\b[A-PR-WYa-pr-wy][1-9]\d{6}\b|\b[A-Z]\d{7,8}[A-Z]?\b/g, tag: 'PASSPORT' },
-
-  // 18. Credit & Debit Cards
-  { pattern: /\b(?:4\d{3}|5[1-5]\d{2}|6011)[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b|\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b/g, tag: 'CARD' },
 
   // 19. Phone Numbers: Indian Mobile (6-9 followed by 9 digits)
   { pattern: /(?:\+91[\s.-]?|0091[\s.-]?)[6-9]\d{4}[\s.-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b/g, tag: 'PHONE' },
@@ -436,8 +459,13 @@ function extractNERSpans(rawResults, line) {
       }
     }
 
+    let finalTag = isName ? 'NAME' : 'ADDRESS';
+    if (isName && KNOWN_CITIES_SET.has(cleanLower)) {
+      finalTag = 'ADDRESS';
+    }
+
     spans.push({
-      tag: isName ? 'NAME' : 'ADDRESS',
+      tag: finalTag,
       text: extractedText,
       start: firstIdx,
       end: endIdx
@@ -459,16 +487,37 @@ export async function redactTextContent(rawText, onProgress = null) {
   const { ner, engine } = await getNERPipeline(onProgress);
   const redactions = [];
 
-  const addSpan = (start, end, tag) => {
-    const overlapIdx = redactions.findIndex(r => Math.max(start, r.start) < Math.min(end, r.end));
-    if (overlapIdx !== -1) {
-      const existing = redactions[overlapIdx];
-      if (start <= existing.start && end >= existing.end && (start < existing.start || end > existing.end)) {
-        redactions[overlapIdx] = { start, end, tag };
+  const addSpan = (start, end, tag, isDeterministic = false) => {
+    const overlaps = [];
+    for (let i = 0; i < redactions.length; i++) {
+      const r = redactions[i];
+      if (Math.max(start, r.start) < Math.min(end, r.end)) {
+        overlaps.push(i);
       }
-      return;
     }
-    redactions.push({ start, end, tag });
+
+    if (overlaps.length > 0) {
+      const hasDeterministic = overlaps.some(idx => redactions[idx].isDeterministic);
+      
+      // If incoming span is ML/heuristic and overlaps with a deterministic span, do NOT overwrite
+      if (!isDeterministic && hasDeterministic) {
+        return;
+      }
+
+      if (isDeterministic) {
+        const remaining = redactions.filter((r, idx) => !overlaps.includes(idx) || r.isDeterministic);
+        redactions.length = 0;
+        redactions.push(...remaining);
+      } else {
+        const existing = redactions[overlaps[0]];
+        if (start <= existing.start && end >= existing.end && (start < existing.start || end > existing.end)) {
+          redactions[overlaps[0]] = { start, end, tag, isDeterministic: false };
+        }
+        return;
+      }
+    }
+
+    redactions.push({ start, end, tag, isDeterministic });
   };
 
   // --- PHASE 1: High-Precision Deterministic Regex Pass ---
@@ -476,7 +525,12 @@ export async function redactTextContent(rawText, onProgress = null) {
     const pattern = new RegExp(rule.pattern.source, rule.pattern.flags);
     let m;
     while ((m = pattern.exec(rawText)) !== null) {
-      addSpan(m.index, m.index + m[0].length, rule.tag);
+      if (m[1]) {
+        const valStart = m.index + m[0].lastIndexOf(m[1]);
+        addSpan(valStart, valStart + m[1].length, rule.tag, true);
+      } else {
+        addSpan(m.index, m.index + m[0].length, rule.tag, true);
+      }
     }
   }
 
