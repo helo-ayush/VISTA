@@ -7,7 +7,7 @@ env.allowRemoteModels = true;
 env.useBrowserCache = typeof window !== 'undefined';
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
-const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN|Order ID|Order No|Tracking ID|Consignment)\b/i;
+const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN|Order ID|Order No|Tracking ID|Consignment|Record ID|All Bookmarks|New Tab|Send Anywhere|GeForce NOW|Google Search)\b/i;
 
 let cachedNERPipeline = null;
 export const activeNEREngineName = 'Local Fine-Tuned MiniLM-L6 (Offline WASM) + Regex';
@@ -103,7 +103,7 @@ export const UI_STOPWORDS = new Set([
   'maps', 'google maps', 'gmail', 'youtube', 'whatsapp', 'tab', 'new tab', 'bookmarks',
   'all bookmarks', 'dashboard', 'clerk', 'gemini', 'ask gemini', 'chrome', 'browser',
   'geforce', 'geforce now', 'send anywhere', 'vista', 'modeltesting', 'github', 'github.com',
-  'youknow', 'gen z', 'gen', 'namaste'
+  'youknow', 'gen z', 'gen', 'namaste', 'bleach', 'season', 'untitled', 'watc', 'watch', 'fil'
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
@@ -131,17 +131,21 @@ const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR
 
 // --- 1. COMPREHENSIVE REGEX SUITE (INDIAN + GLOBAL) ---
 export const REGEX_RULES = [
-  // 1. Email Addresses
-  { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
+  // 1. Email Addresses (handles standard & OCR spaced formats like name@ gmail.com)
+  { pattern: /\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
 
   // 2. UPI IDs / VPA
   { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
 
-  // 3. Social Media & Platform Handles (@username, @ rohitsinghal)
+  // 3. Social Media & Platform Handles (@username, @rohitsinghal)
   { pattern: /(?<=\s|^|[([:;,])@\s*[a-zA-Z0-9_.-]{2,32}\b/gi, tag: 'HANDLE' },
 
-  // 4. Labeled Handles & User IDs (ID: #ROHITSINGHAL, User ID: abc_12)
-  { pattern: /(?:Handle|Username|User\s*ID|ID)\s*[:#]\s*#?\s*([a-zA-Z0-9_.-]{3,32})\b/gi, tag: 'HANDLE' },
+  // 4. Labeled Social Handles (Handle: @user, Username: abc_12)
+  { pattern: /(?:Handle|Username)\s*[:#]\s*#?\s*([a-zA-Z0-9_.-]{3,32})\b/gi, tag: 'HANDLE' },
+
+  // 4b. Employee, Record, Badge, Candidate & Token IDs (ID: EMP-2024-88391)
+  { pattern: /\b(?:Record\s*ID|Employee\s*(?:ID|Code|No\.?)|Badge\s*ID|Staff\s*ID|Candidate\s*ID|Member\s*ID)\s*[:#]\s*#?([A-Za-z0-9_-]{3,32})\b/gi, tag: 'ID' },
+  { pattern: /\b(?:EMP|BADGE|REC|CAND)[-_]\d{4,}[-_]?[A-Za-z0-9]*\b/gi, tag: 'ID' },
 
   // 5. URLs & Personal Websites
   { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_+.~#?&//=]*)?/gi, tag: 'URL' },
@@ -206,34 +210,35 @@ export const REGEX_RULES = [
   // 22. Passports (Indian 8-char, US/Global alphanumeric)
   { pattern: /\b[A-PR-WYa-pr-wy][1-9]\d{6}\b|\b[A-Z]\d{7,8}[A-Z]?\b/g, tag: 'PASSPORT' },
 
-  // 19. Phone Numbers: Indian Mobile (all formats: +91 98765 43210, 98765 43210, 9876543210, (+91 98765 43210), 0-prefixed)
-  { pattern: /(?:\(\+91[\s.-]?[6-9]\d{4}[\s.-]?\d{5}\)|\+91[\s.-]?[6-9]\d{4}[\s.-]?\d{5}\b|\b(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b|\b(?:\+91[\s.-]?)?[6-9]\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\b0[6-9]\d{4}[\s.-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b)/g, tag: 'PHONE' },
-  // 20. Phone Numbers: Indian Landlines
-  { pattern: /\b0(?:11|22|33|44|80)[-\s]?\d{4}[-\s]?\d{4}\b|\b0\d{2,4}[-\s]?\d{6,8}\b/g, tag: 'PHONE' },
-  // 21. Phone Numbers: US & International
-  { pattern: /\+\d{1,3}[\s.-]\d{1,4}(?:[\s.-]\d{2,4}){2,4}\b|\+\d{1,3}[\s.-]\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b|\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}\b/g, tag: 'PHONE' },
+  // 20. Phone Numbers: Indian Mobile (all formats: +91 98765 43210, 98765 43210, 9876543210, (+91 98765 43210), 0-prefixed)
+  { pattern: /(?:\(\+91[\s.\u2010-\u2015-]?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\)|\+91[\s.\u2010-\u2015-]?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b(?:\+91[\s.\u2010-\u2015-]?)?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b(?:\+91[\s.\u2010-\u2015-]?)?[6-9]\d{2}[\s.\u2010-\u2015-]?\d{3}[\s.\u2010-\u2015-]?\d{4}\b|\b0[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b)/g, tag: 'PHONE' },
+  // 21. Phone Numbers: Indian Landlines
+  { pattern: /\b0(?:11|22|33|44|80)[-\s.\u2010-\u2015]?\d{4}[-\s.\u2010-\u2015]?\d{4}\b|\b0\d{2,4}[-\s.\u2010-\u2015]?\d{6,8}\b/g, tag: 'PHONE' },
+  // 22. Phone Numbers: US, North American & International (supports +1-555-019–2834 with en-dash/em-dash, 555-014-9981, (555) 014-9981)
+  { pattern: /(?:\+?1[\s.\u2010-\u2015-]?)?(?:\(\d{3}\)|\b\d{3})[\s.\u2010-\u2015-]\d{3}[\s.\u2010-\u2015-]\d{4}\b/g, tag: 'PHONE' },
+  { pattern: /\+\d{1,3}[\s.\u2010-\u2015-]\d{1,4}(?:[\s.\u2010-\u2015-]\d{2,4}){2,4}\b|\+\d{1,3}[\s.\u2010-\u2015-]\(?\d{2,4}\)?[\s.\u2010-\u2015-]?\d{3,4}[\s.\u2010-\u2015-]?\d{3,4}\b/g, tag: 'PHONE' },
 
-  // 22. Cryptographic Hashes
+  // 23. Cryptographic Hashes
   { pattern: /\b[a-f0-9]{64}\b|\b[a-f0-9]{32}\b/gi, tag: 'HASH' },
 
-  // 23. PGP Fingerprints
+  // 24. PGP Fingerprints
   { pattern: /(?:\b[0-9A-F]{4}\s*){8,10}\b/g, tag: 'KEY' },
 
-  // 24. IP Addresses (IPv4)
+  // 25. IP Addresses (IPv4)
   { pattern: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g, tag: 'IP_ADDRESS' },
 
-  // 25. MAC Addresses
+  // 26. MAC Addresses
   { pattern: /\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, tag: 'MAC_ADDRESS' },
 
-  // 26. Bank Account Numbers (requires account context indicator to avoid matching order IDs/barcodes)
+  // 27. Bank Account Numbers (requires account context indicator to avoid matching order IDs/barcodes)
   { pattern: /\b(?:Account\s*(?:Number|No\.?|#)?|A\/c\s*(?:No\.?|#)?|Bank\s*A\/c|Acc\s*No\.?)\s*[:-]?\s*([0-9]{9,18})\b/gi, tag: 'ACCOUNT_NUMBER' },
 
-  // 27. Indian Address Relations, Landmarks & Rural Markers (Strict word boundaries to never match "policy")
+  // 28. Indian Address Relations, Landmarks & Rural Markers (Strict word boundaries to never match "policy" or sentence starters like "Below is...")
   { pattern: /\b(?:S\/o|D\/o|W\/o|C\/o|Son of|Daughter of|Wife of|Care of)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
-  { pattern: /\b(?:Near|Opposite|Behind|Beside|Next to|Adjacent to|Above|Below)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
+  { pattern: /\b(?:Near|Opposite|Behind|Beside|Next to|Adjacent to)\s*[:-]?\s*(?!is\b|are\b|was\b|were\b|the\b|a\b|an\b|our\b|we\b|this\b|that\b|these\b|those\b|it\b|all\b)[A-Z][a-zA-Z0-9.,\s-]{2,40}\b/g, tag: 'ADDRESS' },
   { pattern: /\b(?:Vill(?:age)?\b|P\.O\.\b|Post\s*Office\b|Dist(?:rict)?\b|Taluk[a]?\b|Teh(?:sil)?\b|Mandal\b)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
 
-  // 28. Informal Indian Housing Prefixes (Room, Chawl, Gali) - requires word boundary and digits or explicit No/#
+  // 29. Informal Indian Housing Prefixes (Room, Chawl, Gali) - requires word boundary and digits or explicit No/#
   { pattern: /\b(?:Room|Chawl|Gali|House|Shop)\b\s*(?:(?:No\.?|#|Number)\s*[:-]?\s*[A-Z0-9/-]+|\d+[A-Za-z]?(?:[-/]\d+)?)\b/gi, tag: 'ADDRESS' },
 ];
 
@@ -241,6 +246,7 @@ export const REGEX_RULES = [
 const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
 const BIRTH_HEADER_REGEX = /(?:Place of Birth):\s*([^\n*#]+)/gi;
 const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
+const FULL_NAME_HEADER_REGEX = /(?:Full Legal Name|Legal Name|Cardholder Name|Full Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name)\s*:\s*([A-Za-z.'’]+(?:[ \t]+[A-Za-z.'’]+)+(?:,\s*(?:Jr\.?|Sr\.?|II|III|IV|MD|PhD|Esq\.?))?)/gi;
 const CONVERSATIONAL_NAME_REGEX = /(?:\b[mM]y name is|\b[rR]egistered (?:simply )?as|\b[iI]nvestigating [oO]fficer:\s*|\b[cC]omplainant:\s*)\s*([A-Z][a-zA-Z'’]+(?:[- ][A-Z][a-zA-Z'’]+){1,3})/g;
 
 // --- 3. UPGRADED COMPREHENSIVE ADDRESS VOCABULARIES ---
@@ -440,6 +446,34 @@ function extractNERSpans(rawResults, line) {
       continue;
     }
 
+    // Ensure word boundaries: entity must not be a sub-slice inside a single compound word (e.g. "works" in "workspace")
+    if (
+      (firstIdx > 0 && /\w/.test(line.charAt(firstIdx - 1))) ||
+      (endIdx < line.length && /\w/.test(line.charAt(endIdx)))
+    ) {
+      searchIdx = endIdx;
+      continue;
+    }
+
+    // Single lowercase English words (e.g. "works", "pace", "compromise") are common vocabulary, not personal names
+    if (isName && !extractedText.includes(' ') && extractedText.toLowerCase() === extractedText) {
+      searchIdx = endIdx;
+      continue;
+    }
+
+    // For ADDRESS entities from BERT, ensure there is at least one concrete address/location signal
+    // (digits, known city, street/housing keyword, or postal format) so arbitrary phrases (e.g. "her emergency secondary") are never tagged as addresses
+    if (isAddress) {
+      const hasAddressSignal = /\d/.test(extractedText) ||
+        KNOWN_CITIES_SET.has(cleanLower) ||
+        STREET_TYPES.some(st => new RegExp(String.raw`\b${esc(st)}\b`, 'i').test(extractedText)) ||
+        /\b(?:nagar|colony|sector|block|phase|road|street|avenue|lane|drive|way|layout|enclave|vihar|terrace|springfield|place|square|circle|boulevard|court)\b/i.test(extractedText);
+      if (!hasAddressSignal) {
+        searchIdx = endIdx;
+        continue;
+      }
+    }
+
     // Reject code identifiers, repo slugs, file paths, or URLs (containing or adjacent to '/' or '_')
     const charBefore = firstIdx > 0 ? line.charAt(firstIdx - 1) : '';
     const charAfter = endIdx < line.length ? line.charAt(endIdx) : '';
@@ -570,7 +604,14 @@ export async function redactTextContent(rawText, onProgress = null) {
   while ((cm = CAPS_NAME_HEADER_REGEX.exec(rawText)) !== null) {
     const nameStr = cm[1].trim();
     const start = cm.index + cm[0].indexOf(nameStr);
-    addSpan(start, start + nameStr.length, 'NAME');
+    addSpan(start, start + nameStr.length, 'NAME', true);
+  }
+
+  let fnm;
+  while ((fnm = FULL_NAME_HEADER_REGEX.exec(rawText)) !== null) {
+    const nameStr = fnm[1].trim();
+    const start = fnm.index + fnm[0].indexOf(nameStr);
+    addSpan(start, start + nameStr.length, 'NAME', true);
   }
 
   let cnm;
@@ -601,10 +642,13 @@ export async function redactTextContent(rawText, onProgress = null) {
 
   for (const line of lines) {
     const trimmed = line.trim();
+    const isBrowserChrome = /All Bookmarks|New Tab|Send Anywhere|GeForce NOW|google\.com\/search|\b(?:WhatsApp|Gmail|YouTube)\b.*All Bookmarks/i.test(trimmed) ||
+      /^(?:Bleach|Netflix|YouTube|Gmail|WhatsApp)\s+.*(?:Untitled|Watch|Tab)/i.test(trimmed);
     if (
       trimmed.length > 0 &&
       !trimmed.startsWith('---') &&
       !trimmed.startsWith('###') &&
+      !isBrowserChrome &&
       !SKIP_PATTERNS.test(trimmed)
     ) {
       const rawEnts = await ner(line);
