@@ -102,21 +102,21 @@ const App = () => {
       setAllOcrBoxes(ocrItems);
       setExtractedOcrText(fullText);
 
-      // Level 3: PII & Address Detection (Xenova BERT-NER + Regex)
+      // Level 3: PII & Address Detection (VISTA-PII Neural NER + Regex)
       setCurrentLevel(3);
-      setStatusMessage('Level 3/4: Analyzing PII & Addresses (BERT-NER + Regex)...');
+      setStatusMessage('Level 3/4: Analyzing PII & Addresses (VISTA-PII Neural NER + Regex)...');
       const { cleanedText, redactedEntities, count: piiCount, timeTaken: piiTime } = await redactTextContent(fullText, (item) => {
         if (item && item.progress !== undefined) {
           setIsDownloading(true);
           const pct = Math.round(item.progress);
-          const loaded = item.loaded ? (item.loaded / (1024 * 1024)).toFixed(1) : ((pct / 100) * 109).toFixed(1);
+          const loaded = item.loaded ? (item.loaded / (1024 * 1024)).toFixed(1) : ((pct / 100) * TOTAL_MODELS_SIZE_MB).toFixed(1);
           setDownloadProgress({
             progress: pct,
-            stage: `Downloading BERT-NER weights (${pct}%)...`,
+            stage: `Downloading VISTA-PII weights (${pct}%)...`,
             loadedMB: loaded,
-            totalMB: 109
+            totalMB: TOTAL_MODELS_SIZE_MB
           });
-          setStatusMessage(`Downloading neural weights (${pct}% - ${loaded}/109 MB)...`);
+          setStatusMessage(`Downloading neural weights (${pct}% - ${loaded}/${TOTAL_MODELS_SIZE_MB} MB)...`);
         }
       });
       setIsDownloading(false);

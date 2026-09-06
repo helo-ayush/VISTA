@@ -32,6 +32,15 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       continue;
     }
 
+    // Skip UI category lists or multi-word navigation where >= 50% of words are UI stopwords
+    const words = cleanLower.split(/[\s,&/+-]+/).filter(w => w.length >= 2);
+    if (words.length > 0) {
+      const stopwordCount = words.filter(w => UI_STOPWORDS.has(w) || COMPANY_INDICATORS.test(w)).length;
+      if (stopwordCount / words.length >= 0.50) {
+        continue;
+      }
+    }
+
     let shouldRedact = false;
     let matchedTag = 'PII';
 
@@ -42,23 +51,32 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
 
       const valLower = val.toLowerCase();
       const itemLower = itemText.toLowerCase();
+      const cleanVal = val.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
+      const cleanItem = itemText.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
 
       // Case A: The OCR box contains the sensitive PII (e.g. "Himanshu Kumar Mahto 8383026675" contains "8383026675")
-      if (itemLower.includes(valLower)) {
+      if (itemLower.includes(valLower) || (cleanVal.length >= 3 && cleanItem.includes(cleanVal))) {
         shouldRedact = true;
         matchedTag = ent.tag;
         break;
       }
 
-      // Case B: The PII entity contains this OCR box on a full word boundary
-      // e.g. Address "Plot-42 Sainik Nagar, Gali Number 2A" contains Box "Gali Number 2A"
-      if (itemText.length >= 4 && !UI_STOPWORDS.has(cleanLower)) {
-        const wordRegex = new RegExp(String.raw`\b${esc(itemText)}\b`, 'i');
-        if (wordRegex.test(val)) {
+      // Case B: The PII entity contains this OCR box
+      // Handles truncated strings with ellipsis (...), commas, dashes gracefully
+      if (cleanItem.length >= 4 && !UI_STOPWORDS.has(cleanLower)) {
+        if (cleanVal.includes(cleanItem) || cleanItem.includes(cleanVal)) {
           shouldRedact = true;
           matchedTag = ent.tag;
           break;
         }
+        try {
+          const wordRegex = new RegExp(String.raw`\b${esc(cleanItem)}\b`, 'i');
+          if (wordRegex.test(cleanVal)) {
+            shouldRedact = true;
+            matchedTag = ent.tag;
+            break;
+          }
+        } catch (e) {}
       }
 
       // Case C: For person names: check individual name tokens (length >= 3, e.g. "Himanshu" in "Himanshu Kumar Mahto")

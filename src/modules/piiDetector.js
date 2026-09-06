@@ -88,7 +88,7 @@ export const UI_STOPWORDS = new Set([
   'know', 'know more', 'chat', 'chat with us', 'offers', 'offers earned', 'gift',
   'rate', 'experience', 'rate your experience', 'reward', 'extra', 'extra cost', 'free',
   'special', 'special price', 'listing', 'listing price', 'amount', 'fees', 'total fees',
-  'netf', 'lix', 'netflix', 'flipkart', 'cultx', 'shoes', 'men', 'women', 'kids',
+  'netf', 'lix', 'netflix', 'flipkart', 'fliptart', 'flipt', 'cultx', 'shoes', 'men', 'women', 'kids',
   'baby & kids', 'electronics', 'appliances', 'tvs & appliances', 'home & furniture',
   'furniture', 'sports', 'sports, books & more', 'flights', 'offer zone', 'zone',
   'save', 'cancel', 'submit', 'select', 'try', 'sample', 'icon', 'logo', 'button',
@@ -97,7 +97,7 @@ export const UI_STOPWORDS = new Set([
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
-export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?)\b/i;
+export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Microsoft|Apple|Netflix|CultX|Search|Explore)\b/i;
 
 // Valid ISO 3166-1 alpha-2 country codes used in real international IBANs
 const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR|GE|DE|GI|GR|GL|GT|HU|IS|IE|IL|IT|JO|KZ|XK|KW|LV|LB|LI|LT|LU|MK|MT|MR|MU|MD|MC|ME|NL|NO|PK|PS|PL|PT|QA|RO|SM|SA|RS|SK|SI|ES|SE|CH|TN|TR|AE|GB|VA';
@@ -369,6 +369,16 @@ function extractNERSpans(rawResults, line) {
       continue;
     }
 
+    // Stopword density check: if >= 50% of words in the phrase are UI stopwords or company keywords, reject as UI chrome
+    const words = cleanLower.split(/[\s,&/+-]+/).filter(w => w.length >= 2);
+    if (words.length > 0) {
+      const stopwordCount = words.filter(w => UI_STOPWORDS.has(w) || COMPANY_INDICATORS.test(w)).length;
+      if (stopwordCount / words.length >= 0.50) {
+        searchIdx = endIdx;
+        continue;
+      }
+    }
+
     spans.push({
       tag: isName ? 'NAME' : 'ADDRESS',
       text: extractedText,
@@ -490,7 +500,10 @@ export async function redactTextContent(rawText, onProgress = null) {
       }
 
       const gap = rawText.substring(last.end, r.start);
-      const isCleanSeparator = /^[,\s.\n\r\t-]*$/.test(gap);
+      // Clean separator within the same line, or cross-line only if explicitly continued with comma/hyphen
+      const isCleanSeparator = !gap.includes('\n')
+        ? /^[,\s.\t-]*$/.test(gap)
+        : (/^[,\t -]*\n[,\t -]*$/.test(gap) && /[,-\/]\s*$/.test(rawText.substring(0, last.end)));
       
       const isAddressMerge = (last.tag === 'ADDRESS' || last.tag === 'LOCATION') && 
                              (r.tag === 'ADDRESS' || r.tag === 'LOCATION');

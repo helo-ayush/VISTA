@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TOTAL_MODELS_SIZE_MB } from '../modules/modelManager.js';
 
 /**
  * Clean, artistic pill displaying client-side model storage, live download progress,
@@ -82,7 +83,7 @@ const ModelStoragePill = ({
       <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
       
       <span className="font-medium text-gray-600">
-        Models: <span className="font-mono text-gray-400 text-[11px]">~118 MB</span>
+        Models: <span className="font-mono text-gray-400 text-[11px]">~{TOTAL_MODELS_SIZE_MB} MB</span>
       </span>
 
       <div className="h-3 w-px bg-gray-200 mx-0.5" />
