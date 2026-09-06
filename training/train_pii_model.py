@@ -164,6 +164,14 @@ def export_to_onnx(pytorch_model_dir, onnx_dir):
     tokenizer.save_pretrained(onnx_dir)
     print("[OK] Model config & Tokenizer configuration saved into onnx folder.")
 
+    # Remove heavy unquantized raw ONNX files to keep download tiny (~18 MB)
+    if os.path.exists(raw_onnx_path):
+        os.remove(raw_onnx_path)
+    raw_data_path = os.path.join(onnx_dir, "model.onnx.data")
+    if os.path.exists(raw_data_path):
+        os.remove(raw_data_path)
+    print("[OK] Cleaned up temporary raw ONNX files.")
+
 def main():
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     train_file = os.path.join(data_dir, "train.jsonl")

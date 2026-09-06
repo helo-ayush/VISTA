@@ -13,11 +13,23 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
-ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
+def find_onnx_dir():
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "onnx_model"),
+        os.path.join(os.getcwd(), "onnx_model"),
+        os.path.join(os.path.dirname(__file__), "..", "public", "models", "Xenova"),
+        os.path.join(os.getcwd(), "public", "models", "Xenova")
+    ]
+    for c in candidates:
+        if os.path.exists(os.path.join(c, "model_quantized.onnx")):
+            return c
+    return candidates[0]
+
+ONNX_DIR = find_onnx_dir()
 MODEL_PATH = os.path.join(ONNX_DIR, "model_quantized.onnx")
 TOKENIZER_PATH = os.path.join(ONNX_DIR, "tokenizer.json")
 
-LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDR", "I-ADDR"]
+LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDRESS", "I-ADDRESS"]
 ID2LABEL = {i: label for i, label in enumerate(LABEL_LIST)}
 
 def test_model():
