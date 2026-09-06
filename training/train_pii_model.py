@@ -242,7 +242,7 @@ def main():
     # Export directly to quantized browser ONNX
     export_to_onnx(OUTPUT_DIR, ONNX_OUTPUT_DIR)
     print("\n[SUCCESS] Model training and browser ONNX export complete!")
-    print(f"To deploy, copy contents of '{ONNX_OUTPUT_DIR}' to 'public/models/Xenova/'")
+    print(f"To deploy, copy contents of '{ONNX_OUTPUT_DIR}' to 'public/models/vista_pii/'")
 
 if __name__ == "__main__":
     main()

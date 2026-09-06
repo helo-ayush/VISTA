@@ -17,8 +17,8 @@ def find_onnx_dir():
     candidates = [
         os.path.join(os.path.dirname(__file__), "onnx_model"),
         os.path.join(os.getcwd(), "onnx_model"),
-        os.path.join(os.path.dirname(__file__), "..", "public", "models", "Xenova"),
-        os.path.join(os.getcwd(), "public", "models", "Xenova")
+        os.path.join(os.path.dirname(__file__), "..", "public", "models", "vista_pii"),
+        os.path.join(os.getcwd(), "public", "models", "vista_pii")
     ]
     for c in candidates:
         if os.path.exists(os.path.join(c, "model_quantized.onnx")):

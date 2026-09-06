@@ -27,7 +27,7 @@ The generated dataset contains **100,000 authentic records** (`95,000` train, `5
 3. Ensure GPU is enabled (**Runtime** > **Change runtime type** > **T4 GPU**).
 4. Run all cells.
 5. Colab will automatically train the model, export it to ONNX, quantize it to INT8, and download `pii_browser_model.zip`.
-6. Extract the zip into `public/models/Xenova/`.
+6. Extract the zip into `public/models/vista_pii/`.
 
 ---
 
@@ -53,4 +53,4 @@ The training script produces:
 * `tokenizer.json` & `tokenizer_config.json`
 * `config.json` & `special_tokens_map.json`
 
-Dropping these into `public/models/Xenova/` provides an instant drop-in replacement that runs 100% locally in the browser with near-perfect accuracy on Indian names, addresses, and all casing formats.
+Dropping these into `public/models/vista_pii/` provides an instant drop-in replacement that runs 100% locally in the browser with near-perfect accuracy on Indian names, addresses, and all casing formats.

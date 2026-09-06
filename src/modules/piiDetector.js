@@ -14,14 +14,14 @@ export const activeNEREngineName = 'Local Fine-Tuned MiniLM-L6 (Offline WASM) + 
 
 export async function getNERPipeline(onProgress = null) {
   if (!cachedNERPipeline) {
-    const localModelPath = typeof window === 'undefined' ? './public/models/Xenova' : getAssetUrl('models/Xenova');
+    const localModelPath = typeof window === 'undefined' ? './public/models/vista_pii' : getAssetUrl('models/vista_pii');
     let loaded = false;
 
     // 1. Pre-flight check: verify local quantized ONNX binary exists and is not a 404 HTML page or LFS pointer
     let isLocalValid = false;
     if (typeof window !== 'undefined' && window.fetch) {
       try {
-        const testUrl = getAssetUrl('models/Xenova/model_quantized.onnx');
+        const testUrl = getAssetUrl('models/vista_pii/model_quantized.onnx');
         const testRes = await fetch(testUrl, { method: 'HEAD' });
         if (testRes.ok) {
           const cl = parseInt(testRes.headers.get('content-length') || '0', 10);

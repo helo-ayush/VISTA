@@ -18,8 +18,8 @@ from tokenizers import Tokenizer
 sys.stdout.reconfigure(encoding='utf-8')
 
 VAL_FILE = os.path.join(os.path.dirname(__file__), "data", "val.jsonl")
-ONNX_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "models", "Xenova", "model_quantized.onnx")
-TOKENIZER_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "models", "Xenova", "tokenizer.json")
+ONNX_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "models", "vista_pii", "model_quantized.onnx")
+TOKENIZER_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "models", "vista_pii", "tokenizer.json")
 
 LABEL_MAP = {
     0: "O",
