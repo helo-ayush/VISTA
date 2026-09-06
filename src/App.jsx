@@ -1,533 +1,520 @@
-import React, { useState } from 'react';
-import { pipeline, env } from '@huggingface/transformers';
-
-// Configure transformers.js to load 100% locally from the single /models/Xenova folder (Zero Remote Downloads / Offline)
-env.allowLocalModels = true;
-env.allowRemoteModels = false;
-env.useBrowserCache = false; // Bypass browser Cache API so it fetches actual local files, not stale 404 HTML
-
-// Purge any stale/corrupted cache from previous failed browser loads
-if (typeof window !== 'undefined' && 'caches' in window) {
-  caches.delete('transformers-cache').catch(() => {});
-}
-
-// Lines that only contain structured key-value fields already 100% matched by deterministic regex
-const SKIP_PATTERNS = /^\s*(?:\*|-|\d+\.)?\s*(?:Date of Birth|Mobile|Landline|Alternate|Aadhaar|Masked|PAN|Voter|Driving|Vehicle|GSTIN|Bank IFSC|Bank Account|Account Number|Routing Transit|SWIFT|UPI|SSN|Belgian|Amex|Eurozone|Credit Card|Card Verification|Corporate Mobile|Policy Group|Individual Member|Employee Identification|Freight Forwarder|Airline Ticket|Digital Fingerprint|Secure PGP|Corporate IP|Direct Line|Gender Identity|Marital Status|Age|Blood Type|Expiration Date|TAN|CIN|ITIN|NINO|ABHA|UAN)\b/i;
-
-let cachedNERPipeline = null;
-const activeEngineName = 'Local Xenova BERT-NER (Offline WASM) + Regex';
-
-// Lazy-load the Xenova/bert-base-NER pipeline directly from local public/models/Xenova
-async function getNERPipeline() {
-  if (!cachedNERPipeline) {
-    cachedNERPipeline = await pipeline('token-classification', '/models/Xenova', {
-      quantized: true,
-      subfolder: '',
-      local_files_only: true
-    });
-  }
-  return { ner: cachedNERPipeline, engine: activeEngineName };
-}
-
-// --- 1. COMPREHENSIVE REGEX SUITE (INDIAN + GLOBAL) ---
-const REGEX_RULES = [
-  // 1. Email Addresses
-  { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
-
-  // 2. UPI IDs / VPA
-  { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
-
-  // 3. URLs & Personal Websites (Requires http or www to avoid matching filenames like report.pdf)
-  { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_\+.~#?&//=]*)?/gi, tag: 'URL' },
-
-  // 4. IBAN
-  { pattern: /\b[A-Z]{2}\d{2}(?:[\s-]?\d{4}){3,7}\b/gi, tag: 'IBAN' },
-
-  // 5. Indian Aadhaar Card (12 digits) & Masked
-  { pattern: /\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b/g, tag: 'AADHAAR' },
-  { pattern: /\b[X]{4}[ -][X]{4}[ -]\d{4}\b/g, tag: 'AADHAAR' },
-
-  // 6. Indian PAN Card
-  { pattern: /\b[A-Z]{5}\d{4}[A-Z]\b/g, tag: 'PAN' },
-
-  // 7. Indian TAN (Tax Deduction Account Number)
-  { pattern: /\b[A-Z]{4}\d{5}[A-Z]\b/g, tag: 'TAN' },
-
-  // 8. Indian GSTIN
-  { pattern: /\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/g, tag: 'GSTIN' },
-
-  // 9. Indian Bank IFSC Code
-  { pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, tag: 'IFSC' },
-
-  // 10. Indian Voter ID
-  { pattern: /\b[A-Z]{3}\d{7}\b/g, tag: 'VOTER_ID' },
-
-  // 11. Indian Driving License
-  { pattern: /\b[A-Z]{2}[- ]?\d{2}[- ]?(?:19|20)\d{2}[- ]?\d{7}\b/g, tag: 'DRIVING_LICENSE' },
-
-  // 12. Indian CIN (Corporate Identity Number)
-  { pattern: /\b[UL]\d{5}[A-Z]{3}\d{4}[A-Z]{3}\d{6}\b/g, tag: 'CIN' },
-
-  // 13. Corporate & Medical Reference Tokens
-  { pattern: /\b(?:BP-\d{4}-\d+|AUS-STU-[\w-]+|TX-\d+|TX-MED-[\w-]+|MRN-[\w-]+|ABC-\d+-VANCE-\d+|BL-GLOBAL-\d+|LH-[\w]+)\b/g, tag: 'ID' },
-
-  // 14. Vehicle Registration (RC & Bharat Series BH)
-  { pattern: /\b[A-Z]{2}[- ]?\d{1,2}[- ]?(?:[A-Z]{1,3}[- ]?)?\d{4}\b|\b\d{2}\s?BH\s?\d{4}\s?[A-Z]{1,2}\b/g, tag: 'VEHICLE_RC' },
-
-  // 15. US Social Security Number (SSN) & ITIN
-  { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, tag: 'SSN' },
-  { pattern: /\b9\d{2}-\d{2}-\d{4}\b/g, tag: 'ITIN' },
-
-  // 16. UK National Insurance Number (NINO)
-  { pattern: /\b[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]\b/gi, tag: 'UK_NINO' },
-
-  // 17. Belgian National ID / BIS
-  { pattern: /\b\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2}\b/g, tag: 'NATIONAL_ID' },
-
-  // 18. Passports (Indian 8-char, US/Global alphanumeric)
-  { pattern: /\b[A-PR-WYa-pr-wy][1-9]\d{6}\b|\b[A-Z]\d{7,8}[A-Z]?\b/g, tag: 'PASSPORT' },
-
-  // 19. Credit & Debit Cards
-  { pattern: /\b(?:4\d{3}|5[1-5]\d{2}|6011)[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b|\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b/g, tag: 'CARD' },
-
-  // 20. Phone Numbers: Indian Mobile
-  { pattern: /(?:\+91[\s.-]?|0091[\s.-]?)[6-9]\d{4}[\s.-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b/g, tag: 'PHONE' },
-  // 21. Phone Numbers: Indian Landlines
-  { pattern: /\b0(?:11|22|33|44|80)[- ]?\d{4}[- ]?\d{4}\b|\b0\d{3,4}[- ]?\d{6,7}\b/g, tag: 'PHONE' },
-  // 22. Phone Numbers: US & International
-  { pattern: /\+\d{1,3}[\s.-]\d{1,4}(?:[\s.-]\d{2,4}){2,4}\b|\+\d{1,3}[\s.-]\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b|\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}\b/g, tag: 'PHONE' },
-
-  // 23. Dates (Written & Numerical)
-  { pattern: /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b|\b\d{1,2}[- ](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[- ]\d{2,4}\b|\b\d{1,2}\/\d{2,4}\b/gi, tag: 'DATE' },
-
-  // 24. Cryptographic Hashes
-  { pattern: /\b[a-f0-9]{64}\b|\b[a-f0-9]{32}\b/gi, tag: 'HASH' },
-
-  // 25. PGP Fingerprints
-  { pattern: /(?:\b[0-9A-F]{4}\s*){8,10}\b/g, tag: 'KEY' },
-
-  // 26. IP Addresses (IPv4)
-  { pattern: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g, tag: 'IP_ADDRESS' },
-
-  // 27. MAC Addresses
-  { pattern: /\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, tag: 'MAC_ADDRESS' },
-
-  // 28. Bank Account Numbers (10 to 18 digits - runs after Phone, Card, Aadhaar)
-  { pattern: /\b\d{10,18}\b/g, tag: 'ACCOUNT_NUMBER' },
-
-  // 29. Indian Address Relations, Landmarks & Rural Markers (UPGRADED)
-  { pattern: /\b(?:S\/o|D\/o|W\/o|C\/o|Son of|Daughter of|Wife of|Care of)\s*[:\-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
-  { pattern: /\b(?:Near|Opposite|Behind|Beside|Next to|Adjacent to|Above|Below)\s*[:\-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
-  { pattern: /\b(?:Vill(?:age)?|Po|P\.O\.|Dist(?:rict)?|Taluk[a]?|Teh(?:sil)?|Via|Mandal)\s*[:\-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
-
-  // 30. Informal Indian Housing Prefixes (Room, Chawl, Gali)
-  { pattern: /\b(?:Room|Chawl|Gali|House|Shop)\s*(?:No\.?|#|Number)?\s*[:\-]?\s*[A-Z0-9\/-]{1,10}\b/gi, tag: 'ADDRESS' },
-];
-
-// --- 2. CONTEXTUAL ADDRESS & BIRTHPLACE HEADERS ---
-const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
-const BIRTH_HEADER_REGEX = /(?:Place of Birth|Date of Birth|DOB):\s*([^\n*#]+)/gi;
-const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name):\s*([A-Z]{2,}(?:\s+[A-Z]{2,})+)/gi;
-
-// --- 3. UPGRADED COMPREHENSIVE ADDRESS & LOCATION VOCABULARIES ---
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const STREET_TYPES = [
-  'Street','St','Avenue','Ave','Boulevard','Blvd','Road','Rd','Drive','Lane','Ln','Way','Court','Ct',
-  'Circle','Cir','Terrace','Ter','Parkway','Pkwy','Place','Pl','Square','Sq','Plaza','Loop','Row','Run',
-  'Trail','Trl','Crossing','Xing','Crescent','Cres','Expressway','Expy','Junction','Jct','Point','Pt',
-  'Ridge','Rdg','Valley','Vly','View','Vw','Vista','Walk','Broadway','Esplanade','Landing','Grove',
-  'Heights','Hts','Hill','Hollow','Holw','Island','Isle','Meadow','Mews','Orchard','Park','Ranch','River',
-  'Shore','Spring','Springs','Alley','Aly','Highway','Hwy','Freeway','Fwy','Causeway','Cswy','Bypass',
-  'Byp','Extension','Ext','Path','Wharf','Quay',
-  // India / South Asia
-  'Marg','Salai','Bazaar','Bazar','Nagar','Colony','Sector','Phase','Enclave','Layout','Society','Vihar',
-  'Peth','Chowk','Gali','Galli','Veedhi','Rasta',
-];
-const ST = STREET_TYPES.map(esc).join('|') + '|Dr';
-
-const DIR       = 'N|S|E|W|NE|NW|SE|SW|North|South|East|West';
-const UNITS     = 'Suite|Ste|Apt|Apartment|Unit|Floor|Fl|Office|Room|Rm|Flat|Plot|Tower|Block|Bldg|Building|Shop|Hse';
-const US_STATES = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
-const COUNTRIES = [
-  'United States of America','United States','United Kingdom','United Arab Emirates','South Korea',
-  'South Africa','New Zealand','Sri Lanka','Saudi Arabia','India','USA','UK','UAE','Canada','Australia',
-  'Germany','France','Netherlands','Belgium','Spain','Italy','Switzerland','Sweden','Singapore','Malaysia',
-  'Indonesia','Philippines','Japan','China','Qatar','Kuwait','Oman','Bahrain','Nigeria','Kenya','Brazil',
-  'Mexico','Argentina','Russia','Poland','Portugal','Ireland','Scotland','England','Vietnam','Thailand',
-  'Pakistan','Bangladesh','Nepal','Maldives','Turkey','Egypt','Greece','Austria','Denmark','Norway','Finland'
-].map(esc).join('|');
-
-const UPGRADED_ADDRESS_PATTERNS = [
-  // A. Number-first streets
-  new RegExp(
-    String.raw`\b(?!19\d{2}\b|20[0-2]\d\b)(?:` +
-      String.raw`\d{1,6}(?:st|nd|rd|th)?[A-Za-z]?|` +
-      String.raw`\d{1,5}-\d{1,4}|` +
-      String.raw`\d{1,4}(?:\s?/\s?\d{1,4}){1,2}|` +
-      String.raw`one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)` +
-    String.raw`[\s,]+` +
-    String.raw`(?:(?:${DIR})\.?\s+)?` +
-    String.raw`(?:[A-Za-z0-9.'\-&]+\s+){1,5}` +
-    String.raw`(?:${ST})\.?(?:\s+(?:${DIR})\.?)?\b` +
-    String.raw`(?:[\s,#\-]*(?:${UNITS}|#)\s*[A-Za-z0-9/-]{1,10}\.?)?`,
-    'gi'),
-
-  // B. Unit-first
-  new RegExp(
-    String.raw`\b(?:${UNITS})\s*(?:No\.?)?\s*[:#]?\s*[A-Za-z0-9/-]{1,10}` +
-    String.raw`[,\s]+(?:\w+\s+){0,3}(?:Rue|Avenue|Boulevard|Street|Road|Drive|Lane|Way|Allée|Platz|Str)\b[^,\n]+`,
-    'gi'),
-
-  // C. Indian Style
-  new RegExp(
-    String.raw`\b(?:Flat|Plot|House|Shop|Office|Suite|Apt|Door)\s*(?:No\.?|#)?\s*[\w\/-]+[,\s]+(?:[\w\s]+(?:Nagar|Colony|Sector|Phase|Enclave|Road|Marg|Street|Layout|Bazaar|Salai|Society|Apartments|Heights|Tower))\b`,
-    'gi'),
-
-  // D. European street-name-first
-  (() => {
-    const ends = ['straat','gracht','kade','laan','weg','dreef','singel','markt','plein','burgwal',
-      'straße','strasse','gasse','platz','allee','damm','ring','promenade','boulevard','avenue','rue',
-      'chemin','impasse','quai','route','allée','place','via','viale','corso','piazza','vicolo','calle',
-      'carrera','paseo','glorieta','avinguda','rua','rúa','ulica','prospekt'];
-    const E = [...ends, ...ends.map(w => w[0].toUpperCase() + w.slice(1))].map(esc).join('|');
-    return new RegExp(String.raw`\b[A-Za-zà-ÿ'’\-]*(?:${E})\b(?:\s+[A-Za-zà-ÿ'’\-]+){0,4}\s+\d{1,4}[A-Za-z]?\b`, 'g');
-  })(),
-
-  // E. Indian "No./H.No./D.No." style
-  /\b(?:H\.?\s?No\.?|D\.?\s?No\.?|Door\s?No\.?|Plot\s?No\.?|Shop\s?No\.?|Survey\s?No\.?|Sy\.?\s?No\.?)\s*[:.\-]?\s*\d+(?:\s?[-\/]\s?\d+){0,2}[A-Za-z]?\b/gi,
-
-  // F. PO Boxes
-  /\b(?:P\.?\s?O\.?|G\.?\s?P\.?\s?O\.?|Post(?:al)?)\s+Box\b(?:\s*(?:No\.?)?[:#\-]?\s*[A-Z0-9-]{2,10}\b)?/gi,
-
-  // G. Ordinal-only streets
-  new RegExp(String.raw`\b\d{1,3}(?:st|nd|rd|th)\s+(?:${ST})\b(?:[\s,#\-]*(?:${UNITS}|#)\s*[A-Za-z0-9/-]{1,10})?`, 'gi'),
-
-  // H. Named street without number
-  new RegExp(String.raw`\b[A-Z][A-Za-z0-9.'&\-]{1,30}\s+(?:${ST})\.?\b`, 'g'),
-
-  // I. Deterministic City + State / Country / PIN
-  new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2},\s*(?:${US_STATES})\s+\d{5}(?:-\d{4})?\b`, 'g'),
-  new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2}\s+(?:${US_STATES})\s+\d{5}(?:-\d{4})?\b`, 'g'),
-  new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2},\s*(?:${US_STATES})\b`, 'g'),
-  new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2},\s*(?:${COUNTRIES})\b`, 'g'),
-  /\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2}\s+\d{6}\b/g,
-
-  // J. Post codes & PIN codes
-  /\b(?:zip(?:\s*code)?|pin(?:\s*code)?|pincode|postal(?:\s*code)?)\s*[:#\-]?\s*[A-Z0-9][A-Z0-9-]{2,9}\b/gi,
-  /\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/g, 
-  /\b[ABCEGHJ-NPRSTVXY]\d[A-Z][ -]?\d[A-Z]\d\b/g,         
-  /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,  
-  /\b[1-9]\d{2}\s?\d{3}\b/g,                              
-  /\b\d{5}(?:-\d{4})?\b/g,                                
-
-  // K. GPS Coordinates
-  /[-+]?\d{1,2}\.\d{4,}\s*°?\s*[NSns]?\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?/g,
-
-  // L. Lowercase Indian Localities (meera nath nagar, juhu gully, hsr layout)
-  /\b[a-zA-Z0-9.\-]{2,20}\s+(?:nagar|colony|society|layout|vihar|enclave|gali|chawl|gully|peth|chowk)\b/gi,
-
-  // M. Uncapitalized Indian City + State pairs (lucknow uttar pradesh, shahdara delhi)
-  (() => {
-    const IN_STATES = 'maharashtra|delhi|karnataka|tamil nadu|telangana|uttar pradesh|gujarat|rajasthan|west bengal|bihar|madhya pradesh|haryana|punjab|kerala|andhra pradesh|odisha|jharkhand|chhattisgarh|assam|goa|himachal pradesh|uttarakhand';
-    return new RegExp(String.raw`\b(?:[a-zA-Z\-]+\s+){1,3}(?:${IN_STATES})\b`, 'gi');
-  })()
-];
-
-function extractNERSpans(rawResults, line) {
-  const entities = [];
-  let current = null;
-
-  for (const token of rawResults) {
-    const isSubword = token.word.startsWith('##');
-    const cleanWord = isSubword ? token.word.slice(2) : token.word;
-    const tagType = token.entity.replace(/^[BI]-/, '');
-
-    // Slightly relaxed threshold for LOC (0.75) to catch smaller Indian towns/localities
-    const minScore = tagType === 'PER' ? 0.65 : 0.75; 
-    if (token.score < minScore) continue;
-
-    if (current && (isSubword || (token.entity.startsWith('I-') && current.type === tagType))) {
-      current.tokens.push(token);
-    } else {
-      if (current) entities.push(current);
-      current = { type: tagType, tokens: [token] };
-    }
-  }
-  if (current) entities.push(current);
-
-  const spans = [];
-  let searchIdx = 0;
-
-  for (const ent of entities) {
-    if (ent.type !== 'PER' && ent.type !== 'LOC') continue;
-
-    const firstClean = ent.tokens[0].word.replace(/^##/, '');
-    const lastClean = ent.tokens[ent.tokens.length - 1].word.replace(/^##/, '');
-
-    const firstIdx = line.indexOf(firstClean, searchIdx);
-    if (firstIdx === -1) continue;
-
-    let lastIdx = line.indexOf(lastClean, firstIdx);
-    if (lastIdx === -1) lastIdx = firstIdx;
-    let endIdx = lastIdx + lastClean.length;
-
-    if (ent.type === 'PER') {
-      const remainder = line.substring(endIdx);
-      const hyphenMatch = remainder.match(/^-[A-Z][a-zA-Z]+/);
-      if (hyphenMatch) {
-        endIdx += hyphenMatch[0].length;
-      }
-    }
-
-    spans.push({
-      tag: ent.type === 'PER' ? 'NAME' : 'LOCATION',
-      text: line.substring(firstIdx, endIdx),
-      start: firstIdx,
-      end: endIdx
-    });
-
-    searchIdx = endIdx;
-  }
-
-  return spans;
-}
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { detectFaces } from './modules/faceDetector.js';
+import { runDocumentOCR } from './modules/ocrService.js';
+import { redactTextContent } from './modules/piiDetector.js';
+import { findBoxesToRedact, renderCanvasOverlay } from './modules/redactionCanvas.js';
+import PipelineStats from './components/PipelineStats.jsx';
+import DocumentCanvas from './components/DocumentCanvas.jsx';
 
 const App = () => {
-  const [textData, setTextData] = useState("");
-  const [cleanedText, setCleanedText] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [timeTaken, setTimeTaken] = useState(null);
-  const [detectedCount, setDetectedCount] = useState(0);
-  const [providerUsed, setProviderUsed] = useState('Xenova BERT-NER + Regex');
+  // Input & Processing State
+  const [imageFile, setImageFile] = useState(null);
+  const [imageElement, setImageElement] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [currentLevel, setCurrentLevel] = useState(0); // 0: idle, 1: Face, 2: OCR, 3: PII, 4: Redaction, 5: Done
+  const [statusMessage, setStatusMessage] = useState('');
+  const [pipelineStats, setPipelineStats] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
-  const cleanText = async () => {
-    if (!textData.trim()) return;
-    setGenerating(true);
-    const startTime = performance.now();
+  // Extracted Pipeline Outputs
+  const [detectedFaces, setDetectedFaces] = useState([]);
+  const [allOcrBoxes, setAllOcrBoxes] = useState([]);
+  const [redactedBoxes, setRedactedBoxes] = useState([]);
+  const [extractedOcrText, setExtractedOcrText] = useState('');
+  const [redactedOcrText, setRedactedOcrText] = useState('');
+  const [detectedPiiEntities, setDetectedPiiEntities] = useState([]);
+
+  // Canvas View Mode: 'guided' (Final) | 'faces' | 'ocr' | 'original'
+  const [viewMode, setViewMode] = useState('guided');
+
+  // Inspection Tab for Level Outputs: 'pii' | 'ocr' | 'faces'
+  const [inspectorTab, setInspectorTab] = useState('pii');
+
+  const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Re-render canvas overlay whenever viewMode, boxes, or faces change
+  useEffect(() => {
+    if (imageElement && canvasRef.current) {
+      renderCanvasOverlay(canvasRef.current, imageElement, redactedBoxes, allOcrBoxes, detectedFaces, viewMode);
+    }
+  }, [viewMode, imageElement, redactedBoxes, allOcrBoxes, detectedFaces]);
+
+  /**
+   * Main Single-Click End-to-End Pipeline:
+   * Level 1: YuNet ONNX Face Detection
+   * Level 2: PaddleOCR v6 Document Text Extraction
+   * Level 3: Xenova BERT-NER + Deterministic Regex PII & Address Detection
+   * Level 4: Guided Visual Redaction (<NAME_HIDDEN>, <FACE_HIDDEN>)
+   */
+  const processScreenshot = useCallback(async (fileOrBlob) => {
+    if (!fileOrBlob) return;
+    setProcessing(true);
+    setPipelineStats(null);
+    setCurrentLevel(1);
+    setExtractedOcrText('');
+    setRedactedOcrText('');
+    setAllOcrBoxes([]);
+    setRedactedBoxes([]);
+    setDetectedFaces([]);
+    setDetectedPiiEntities([]);
+    setViewMode('guided');
+
+    const totalStart = performance.now();
 
     try {
-      const rawText = textData;
-      const redactions = [];
+      // 0. Workspace Preparation: Load image
+      setStatusMessage('Loading screenshot into workspace...');
+      const imgUrl = URL.createObjectURL(fileOrBlob);
+      const img = new Image();
+      img.src = imgUrl;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('Failed to load image file.'));
+      });
+      setImageElement(img);
 
-      const addSpan = (start, end, tag) => {
-        const overlapIdx = redactions.findIndex(r => Math.max(start, r.start) < Math.min(end, r.end));
-        if (overlapIdx !== -1) {
-          const existing = redactions[overlapIdx];
-          if (start <= existing.start && end >= existing.end && (start < existing.start || end > existing.end)) {
-            redactions[overlapIdx] = { start, end, tag };
-          }
-          return;
-        }
-        redactions.push({ start, end, tag });
-      };
+      // Level 1: Face Detection (YuNet ONNX)
+      setCurrentLevel(1);
+      setStatusMessage('Level 1/4: Detecting Faces...');
+      const faceRes = await detectFaces(img);
+      const { faces, timeTaken: faceTime } = faceRes;
+      setDetectedFaces(faces);
 
-      // --- PHASE 1: High-Precision Deterministic Regex Pass ---
-      for (const rule of REGEX_RULES) {
-        const pattern = new RegExp(rule.pattern.source, rule.pattern.flags);
-        let m;
-        while ((m = pattern.exec(rawText)) !== null) {
-          addSpan(m.index, m.index + m[0].length, rule.tag);
-        }
-      }
+      // Level 2: Document OCR (PaddleOCR v6 WASM SIMD)
+      setCurrentLevel(2);
+      setStatusMessage('Level 2/4: Running Accelerated Document OCR...');
+      const arrayBuffer = await fileOrBlob.arrayBuffer();
+      const ocrRes = await runDocumentOCR(arrayBuffer);
+      const { fullText, items: ocrItems, timeTaken: ocrTime, providerUsed } = ocrRes;
 
-      // --- PHASE 2: Contextual Address, Birthplace & Caps Name Headers ---
-      let hm;
-      while ((hm = ADDRESS_HEADER_REGEX.exec(rawText)) !== null) {
-        const addr = hm[1].trim();
-        const start = hm.index + hm[0].indexOf(addr);
-        addSpan(start, start + addr.length, 'ADDRESS');
-      }
+      setAllOcrBoxes(ocrItems);
+      setExtractedOcrText(fullText);
 
-      let bm;
-      while ((bm = BIRTH_HEADER_REGEX.exec(rawText)) !== null) {
-        const place = bm[1].trim();
-        const start = bm.index + bm[0].indexOf(place);
-        addSpan(start, start + place.length, 'LOCATION');
-      }
+      // Level 3: PII & Address Detection (Xenova BERT-NER + Regex)
+      setCurrentLevel(3);
+      setStatusMessage('Level 3/4: Analyzing PII & Addresses (BERT-NER + Regex)...');
+      const { cleanedText, redactedEntities, count: piiCount, timeTaken: piiTime } = await redactTextContent(fullText);
+      setRedactedOcrText(cleanedText);
+      setDetectedPiiEntities(redactedEntities);
 
-      let cm;
-      while ((cm = CAPS_NAME_HEADER_REGEX.exec(rawText)) !== null) {
-        const nameStr = cm[1].trim();
-        const start = cm.index + cm[0].indexOf(nameStr);
-        addSpan(start, start + nameStr.length, 'NAME');
-      }
+      // Level 4: Visual Redaction & Guided Semantic Masking
+      setCurrentLevel(4);
+      setStatusMessage('Level 4/4: Applying Guided Semantic Redactions (<NAME_HIDDEN>, <FACE_HIDDEN>)...');
+      const toRedact = findBoxesToRedact(ocrItems, redactedEntities);
+      setRedactedBoxes(toRedact);
 
-      // --- PHASE 3: Upgraded Syntactic Address & Location Detection ---
-      const NOT_CITY_PREFIX = /^(?:Invoice|Order|Case|Ticket|Ref|Reference|Reg|Roll|Account|Employee|ID|Transaction|Payment|Amount|Policy|Claim|Serial|Model|Part|Batch|Lot|Page|File|Document|Form|Row|Item|Code|Version|Chapter|Section|Table|Figure|Slide)\b/i;
+      // Render to Canvas
+      const renderTime = renderCanvasOverlay(canvasRef.current, img, toRedact, ocrItems, faces, 'guided');
+      const totalTime = Math.round(performance.now() - totalStart);
 
-      for (const pat of UPGRADED_ADDRESS_PATTERNS) {
-        const pattern = new RegExp(pat.source, pat.flags);
-        let m;
-        while ((m = pattern.exec(rawText)) !== null) {
-          const matchStr = m[0].trim();
-          if (NOT_CITY_PREFIX.test(matchStr) && /\d{5,6}$/.test(matchStr)) {
-            continue;
-          }
-          addSpan(m.index, m.index + m[0].length, 'ADDRESS');
-        }
-      }
+      // Save complete level timings & counts
+      setPipelineStats({
+        faceTime,
+        facesCount: faces.length,
+        ocrTime,
+        detectedElements: ocrItems.length,
+        providerUsed: providerUsed || 'WASM',
+        piiTime,
+        textEntitiesCount: piiCount,
+        renderTime,
+        redactedCount: toRedact.length,
+        totalTime
+      });
 
-      // --- PHASE 4: Semantic NER (Xenova BERT-NER) for Names & Locations ---
-      const { ner, engine } = await getNERPipeline();
-      const lines = rawText.split('\n');
-      let lineOffset = 0;
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (
-          trimmed.length > 0 &&
-          !trimmed.startsWith('---') &&
-          !trimmed.startsWith('###') &&
-          /[A-Z]/.test(trimmed) &&
-          !SKIP_PATTERNS.test(trimmed)
-        ) {
-          const rawEnts = await ner(line);
-          const nerSpans = extractNERSpans(rawEnts, line);
-          for (const s of nerSpans) {
-            addSpan(lineOffset + s.start, lineOffset + s.end, s.tag);
-          }
-        }
-        lineOffset += line.length + 1; 
-      }
-
-      // --- PHASE 5: Sort, Synthesize & Merge Adjacent / Overlapping Spans (Multiline Enabled) ---
-      redactions.sort((a, b) => a.start - b.start);
-
-      const merged = [];
-      for (const r of redactions) {
-        if (merged.length === 0) {
-          merged.push({ ...r });
-        } else {
-          const last = merged[merged.length - 1];
-          const gap = rawText.substring(last.end, r.start);
-          const isCleanSeparator = /^[,\s.\n\r\t-]*$/.test(gap);
-          
-          const isAddressMerge = (last.tag === 'ADDRESS' || last.tag === 'LOCATION') && 
-                                 (r.tag === 'ADDRESS' || r.tag === 'LOCATION');
-
-          if (isAddressMerge && isCleanSeparator) {
-            // MERGE ADDRESS PARTS ACROSS NEWLINES!
-            last.tag = 'ADDRESS';
-            last.end = Math.max(last.end, r.end);
-          } else if (!gap.includes('\n') && isCleanSeparator && gap.length <= 6 && last.tag === r.tag) {
-            // Merge exact same adjacent tags (e.g. NAME + NAME, EMAIL + EMAIL)
-            last.end = Math.max(last.end, r.end);
-          } else {
-            merged.push({ ...r });
-          }
-        }
-      }
-
-      // --- PHASE 6: Apply Redactions in Reverse Order ---
-      let resultText = rawText;
-      for (let i = merged.length - 1; i >= 0; i--) {
-        const { start, end, tag } = merged[i];
-        resultText = resultText.substring(0, start) + `[${tag}]` + resultText.substring(end);
-      }
-
-      setCleanedText(resultText);
-      setDetectedCount(merged.length);
-      setTimeTaken(Math.round(performance.now() - startTime));
-      setProviderUsed(engine);
+      setCurrentLevel(5);
+      setStatusMessage(`Completed in ${totalTime} ms! Masked ${faces.length} face(s) and ${toRedact.length} PII region(s).`);
     } catch (err) {
-      console.error("Redaction Error:", err);
-      alert("Error during text redaction: " + err.message);
+      console.error('Pipeline Error:', err);
+      alert('Error during processing: ' + err.message);
+      setStatusMessage('Failed: ' + err.message);
     } finally {
-      setGenerating(false);
+      setProcessing(false);
+    }
+  }, []);
+
+  // Listen for clipboard paste (Ctrl+V anywhere)
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) {
+            const pastedFile = new File([blob], `screenshot_${Date.now()}.png`, { type: blob.type });
+            setImageFile(pastedFile);
+            processScreenshot(pastedFile);
+            break;
+          }
+        }
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [processScreenshot]);
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      processScreenshot(file);
     }
   };
 
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setImageFile(file);
+      processScreenshot(file);
+    }
+  };
+
+  const handleLoadSample = async () => {
+    try {
+      setStatusMessage('Fetching sample screenshot...');
+      const response = await fetch('/sample.png');
+      const blob = await response.blob();
+      const file = new File([blob], 'sample_id_document.png', { type: 'image/png' });
+      setImageFile(file);
+      processScreenshot(file);
+    } catch (err) {
+      alert('Failed to load sample: ' + err.message);
+    }
+  };
+
+  const downloadRedactedImage = () => {
+    if (!canvasRef.current) return;
+    const link = document.createElement('a');
+    link.download = `protected_${imageFile?.name || 'screenshot.png'}`;
+    link.href = canvasRef.current.toDataURL('image/png');
+    link.click();
+  };
+
   return (
-    <div className='flex flex-col w-full items-center mt-10 gap-5 px-4 max-w-4xl mx-auto'>
-      <div className='flex flex-col items-center gap-1.5 text-center'>
-        <h1 className='text-3xl font-extrabold text-gray-900 tracking-tight'>
-          AI Privacy & PII Redactor
-        </h1>
-        <p className='text-sm text-gray-500 max-w-lg'>
-          Enterprise-grade Privacy Engine powered by <strong>Xenova BERT NER</strong> + <strong>Indian & Global Deterministic Regex</strong>.
-        </p>
-        <div className='flex items-center gap-2 mt-1'>
-          <span className='inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm'>
-            <span className='w-2 h-2 rounded-full bg-emerald-500 animate-pulse'></span>
-            Engine: 100% Offline Local Model (Quantized WASM SIMD ⚡)
+    <div className='flex flex-col w-full items-center py-6 px-4 max-w-5xl mx-auto min-h-screen font-sans text-gray-900'>
+      {/* Header */}
+      <div className='flex flex-col items-center gap-1.5 text-center mb-6'>
+        <div className='flex items-center gap-2'>
+          <span className='px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800'>
+            VISTA AI
           </span>
+          <h1 className='text-2xl sm:text-3xl font-black text-gray-900 tracking-tight'>
+            Screenshot Privacy Redactor
+          </h1>
         </div>
+        <p className='text-xs sm:text-sm text-gray-600 max-w-xl'>
+          Upload a screenshot to detect faces, extract text, identify PII, and apply semantic blurs.
+        </p>
       </div>
 
-      {/* Input Text Area */}
-      <div className='w-full max-w-2xl flex flex-col gap-1.5'>
-        <div className='flex justify-between items-center'>
-          <label className='text-sm font-semibold text-gray-700'>Original Sensitive Text:</label>
-          {textData && (
-            <button
-              type='button'
-              onClick={() => setTextData('')}
-              className='text-xs text-gray-400 hover:text-gray-600 underline cursor-pointer'
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <textarea
-          value={textData}
-          onChange={(e) => setTextData(e.target.value)}
-          placeholder='Paste sensitive text here (dossiers, Aadhaar, PAN, SSN, bank accounts, emails, phone numbers, addresses)...'
-          className='w-full h-44 p-3.5 bg-white outline-none border border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 text-gray-800 text-sm resize-y font-mono'
-        />
-      </div>
-
-      {/* Trigger Button */}
-      <button
-        onClick={cleanText}
-        disabled={generating || !textData.trim()}
-        className='bg-indigo-600 px-8 rounded-full text-base py-3 text-white font-semibold select-none hover:bg-indigo-700 active:scale-[0.98] cursor-pointer transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center gap-2'
+      {/* Main Upload Dropzone */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragOver(true);
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleDrop}
+        className={`w-full max-w-5xl flex flex-col sm:flex-row items-center justify-between p-6 bg-white border-2 border-dashed rounded-2xl transition-all gap-4 mb-6 shadow-xs ${
+          isDragOver
+            ? 'border-indigo-600 bg-indigo-50/50 scale-[1.01]'
+            : 'border-gray-300 hover:border-indigo-400'
+        }`}
       >
-        {generating ? (
-          <>
-            <svg className='animate-spin h-5 w-5 text-white' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
-              <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
-              <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8v8H4z'></path>
+        <div className='flex flex-col items-center sm:items-start text-center sm:text-left gap-1'>
+          <div className='flex items-center gap-2 text-gray-800 font-bold text-base'>
+            <svg className='w-5 h-5 text-indigo-600' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+              <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' />
             </svg>
-            <span>Scanning & Redacting...</span>
-          </>
-        ) : (
-          'Clean & Redact Text'
-        )}
-      </button>
+            <span>Upload or Paste Screenshot</span>
+          </div>
+          <p className='text-xs text-gray-500'>
+            Drag & drop, click to select, or press <kbd className='px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono'>Ctrl+V</kbd> anywhere to paste.
+          </p>
+        </div>
 
-      {/* Performance & Detection Badge */}
-      {timeTaken !== null && (
-        <div className='flex items-center gap-3 bg-emerald-50 text-emerald-800 px-4 py-1.5 rounded-full text-xs font-medium border border-emerald-200 shadow-sm'>
-          <span>⚡ Time: <strong className='text-emerald-950'>{timeTaken} ms</strong></span>
-          <span>•</span>
-          <span>Engine: <strong className='text-emerald-900'>{providerUsed}</strong></span>
-          <span>•</span>
-          <span>Entities Redacted: <strong className='text-emerald-950'>{detectedCount}</strong></span>
+        <div className='flex items-center gap-3'>
+          <input
+            ref={fileInputRef}
+            type='file'
+            accept='image/*'
+            onChange={handleFileUpload}
+            className='hidden'
+          />
+          <button
+            type='button'
+            onClick={() => fileInputRef.current?.click()}
+            disabled={processing}
+            className='px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50'
+          >
+            Select Screenshot
+          </button>
+          <button
+            type='button'
+            onClick={handleLoadSample}
+            disabled={processing}
+            className='px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-all cursor-pointer disabled:opacity-50'
+          >
+            Try Sample
+          </button>
+        </div>
+      </div>
+
+      {/* Live Level Progress Indicator */}
+      {processing && (
+        <div className='w-full max-w-5xl mb-6 bg-white border border-indigo-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3'>
+          <div className='flex items-center justify-between text-xs font-bold text-gray-700'>
+            <div className='flex items-center gap-2 text-indigo-700'>
+              <svg className='animate-spin h-4 w-4 text-indigo-600' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8v8H4z'></path>
+              </svg>
+              <span>{statusMessage}</span>
+            </div>
+            <span className='text-gray-400'>Level {Math.min(currentLevel, 4)} of 4</span>
+          </div>
+
+          {/* 4-Level Progress Track */}
+          <div className='grid grid-cols-4 gap-2'>
+            <div className={`p-2 rounded-lg text-center text-xs font-semibold border transition-all ${
+              currentLevel === 1
+                ? 'bg-purple-100 border-purple-400 text-purple-900 animate-pulse'
+                : currentLevel > 1 ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-gray-50 border-gray-200 text-gray-400'
+            }`}>
+              1. Face Detection
+            </div>
+            <div className={`p-2 rounded-lg text-center text-xs font-semibold border transition-all ${
+              currentLevel === 2
+                ? 'bg-emerald-100 border-emerald-400 text-emerald-900 animate-pulse'
+                : currentLevel > 2 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-400'
+            }`}>
+              2. Document OCR
+            </div>
+            <div className={`p-2 rounded-lg text-center text-xs font-semibold border transition-all ${
+              currentLevel === 3
+                ? 'bg-indigo-100 border-indigo-400 text-indigo-900 animate-pulse'
+                : currentLevel > 3 ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-gray-50 border-gray-200 text-gray-400'
+            }`}>
+              3. PII Analysis
+            </div>
+            <div className={`p-2 rounded-lg text-center text-xs font-semibold border transition-all ${
+              currentLevel === 4
+                ? 'bg-amber-100 border-amber-400 text-amber-900 animate-pulse'
+                : currentLevel > 4 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-200 text-gray-400'
+            }`}>
+              4. Redaction
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Cleaned Output Text Area */}
-      <div className='w-full max-w-2xl flex flex-col gap-1.5'>
-        <div className='flex justify-between items-center'>
-          <label className='text-sm font-semibold text-gray-700'>Cleaned / Redacted Output:</label>
-          {cleanedText && (
-            <button
-              type='button'
-              onClick={() => navigator.clipboard.writeText(cleanedText)}
-              className='text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer'
-            >
-              Copy Output
-            </button>
-          )}
+      {/* Level Stats Bar */}
+      {pipelineStats && (
+        <div className='w-full max-w-5xl mb-6'>
+          <PipelineStats stats={pipelineStats} />
         </div>
-        <textarea
-          readOnly
-          value={cleanedText}
-          placeholder='Redacted output will appear here with tags like [NAME], [AADHAAR], [PAN], [SSN], [ADDRESS], [LOCATION], [PHONE], [EMAIL], [CARD]...'
-          className='w-full h-44 p-3.5 bg-slate-50 outline-none border border-gray-300 rounded-xl shadow-inner text-gray-800 text-sm resize-y font-mono'
-        />
-      </div>
+      )}
+
+      {/* Main Workspace (Canvas on Left, Level Output Inspection on Right) */}
+      {imageElement && (
+        <div className='w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-6 items-start'>
+          {/* Canvas Column (7 cols) */}
+          <div className='lg:col-span-7 flex flex-col gap-4'>
+            <DocumentCanvas
+              canvasRef={canvasRef}
+              imageFile={imageFile}
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              redactedBoxesCount={redactedBoxes.length}
+              facesCount={detectedFaces.length}
+              onDownload={downloadRedactedImage}
+            />
+          </div>
+
+          {/* Level Output Inspection Column (5 cols) */}
+          <div className='lg:col-span-5 flex flex-col gap-3'>
+            {/* Inspector Tab Switcher */}
+            <div className='bg-gray-100 p-1 rounded-xl flex items-center gap-1 text-xs font-bold text-gray-600'>
+              <button
+                onClick={() => setInspectorTab('pii')}
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  inspectorTab === 'pii'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'hover:text-gray-900'
+                }`}
+              >
+                <span>🛡️</span>
+                <span>PII Model</span>
+              </button>
+              <button
+                onClick={() => setInspectorTab('ocr')}
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  inspectorTab === 'ocr'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'hover:text-gray-900'
+                }`}
+              >
+                <span>🔤</span>
+                <span>OCR Results</span>
+              </button>
+              <button
+                onClick={() => setInspectorTab('faces')}
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  inspectorTab === 'faces'
+                    ? 'bg-white text-purple-700 shadow-xs'
+                    : 'hover:text-gray-900'
+                }`}
+              >
+                <span>👤</span>
+                <span>Face Boxes</span>
+              </button>
+            </div>
+
+            {/* TAB 1: PII Model Output */}
+            {inspectorTab === 'pii' && (
+              <div className='bg-white p-4 border border-gray-200 rounded-2xl shadow-xs flex flex-col gap-3'>
+                <div className='flex justify-between items-center'>
+                  <div className='text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5'>
+                    <span className='w-2 h-2 rounded-full bg-indigo-500'></span>
+                    <span>Level 3: PII Model Output</span>
+                  </div>
+                  {redactedOcrText && (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(redactedOcrText)}
+                      className='text-xs text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer'
+                    >
+                      Copy Redacted Text
+                    </button>
+                  )}
+                </div>
+
+                {/* Redacted Text Area */}
+                <textarea
+                  readOnly
+                  value={redactedOcrText}
+                  placeholder='Redacted document text will appear here...'
+                  className='w-full h-44 p-3 bg-slate-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-800 outline-none resize-none shadow-inner leading-relaxed'
+                />
+
+                {/* Detected Sensitive Entities */}
+                <div className='flex flex-col gap-1.5'>
+                  <span className='text-[11px] font-bold text-gray-600 uppercase tracking-wider'>
+                    Detected Sensitive Entities ({detectedPiiEntities.length}):
+                  </span>
+                  <div className='flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 bg-slate-50/70 border border-gray-100 rounded-xl'>
+                    {detectedPiiEntities.length > 0 ? (
+                      detectedPiiEntities.map((ent, idx) => (
+                        <span
+                          key={`pii-${idx}`}
+                          className='inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono font-medium bg-sky-50 text-sky-800 border border-sky-200'
+                          title={ent.originalValue}
+                        >
+                          <span className='font-bold text-[10px] uppercase text-sky-600'>&lt;{ent.tag}_HIDDEN&gt;</span>
+                          <span className='truncate max-w-[130px]'>{ent.originalValue}</span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className='text-xs text-gray-400 p-2 italic'>No sensitive PII entities detected.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: OCR Results */}
+            {inspectorTab === 'ocr' && (
+              <div className='bg-white p-4 border border-gray-200 rounded-2xl shadow-xs flex flex-col gap-3'>
+                <div className='flex justify-between items-center'>
+                  <div className='text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5'>
+                    <span className='w-2 h-2 rounded-full bg-emerald-500'></span>
+                    <span>Level 2: OCR Results ({allOcrBoxes.length} words)</span>
+                  </div>
+                  {extractedOcrText && (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(extractedOcrText)}
+                      className='text-xs text-emerald-600 hover:text-emerald-800 font-semibold cursor-pointer'
+                    >
+                      Copy Raw Text
+                    </button>
+                  )}
+                </div>
+
+                {/* Raw Extracted Text */}
+                <textarea
+                  readOnly
+                  value={extractedOcrText}
+                  placeholder='Extracted OCR text will appear here...'
+                  className='w-full h-52 p-3 bg-slate-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 outline-none resize-none shadow-inner leading-relaxed'
+                />
+
+                <div className='flex items-center justify-between text-xs text-gray-500 px-1'>
+                  <span>PP-OCRv6 High Accuracy</span>
+                  <button
+                    onClick={() => setViewMode('ocr')}
+                    className='text-xs text-emerald-600 hover:underline font-medium cursor-pointer'
+                  >
+                    View OCR Boxes on Canvas →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: Face Box Data */}
+            {inspectorTab === 'faces' && (
+              <div className='bg-white p-4 border border-gray-200 rounded-2xl shadow-xs flex flex-col gap-3'>
+                <div className='flex justify-between items-center'>
+                  <div className='text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5'>
+                    <span className='w-2 h-2 rounded-full bg-purple-500'></span>
+                    <span>Level 1: Face Box Data ({detectedFaces.length} detected)</span>
+                  </div>
+                  <button
+                    onClick={() => setViewMode('faces')}
+                    className='text-xs text-purple-600 hover:underline font-medium cursor-pointer'
+                  >
+                    View on Canvas →
+                  </button>
+                </div>
+
+                <div className='flex flex-col gap-2 max-h-72 overflow-y-auto p-1'>
+                  {detectedFaces.length > 0 ? (
+                    detectedFaces.map((face, idx) => (
+                      <div
+                        key={`face-box-${idx}`}
+                        className='p-3 bg-purple-50/50 border border-purple-200 rounded-xl flex flex-col gap-1.5 text-xs font-mono text-purple-950'
+                      >
+                        <div className='flex justify-between items-center font-bold'>
+                          <span className='text-purple-700'>Face #{idx + 1}</span>
+                          <span className='px-2 py-0.5 rounded bg-purple-200 text-purple-800 text-[11px]'>
+                            {Math.round(face.score * 100)}% Confidence
+                          </span>
+                        </div>
+                        <div className='text-[11px] text-gray-600 grid grid-cols-2 gap-1'>
+                          <span>X: {Math.round(face.x)}px</span>
+                          <span>Y: {Math.round(face.y)}px</span>
+                          <span>Width: {Math.round(face.width)}px</span>
+                          <span>Height: {Math.round(face.height)}px</span>
+                        </div>
+                        {face.landmarks && face.landmarks.length > 0 && (
+                          <div className='text-[10px] text-purple-600'>
+                            ✓ 5 Facial Landmarks Verified
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className='p-6 text-center text-xs text-gray-400 italic bg-slate-50 border border-gray-100 rounded-xl'>
+                      No faces detected in this screenshot.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

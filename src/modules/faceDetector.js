@@ -1,0 +1,167 @@
+import * as ort from 'onnxruntime-web';
+
+
+const MODEL_PATH = '/models/face/face_detection_yunet_2023mar.onnx';
+const INPUT_SIZE = 640;           // YuNet standard input resolution (640x640)
+const SCORE_THRESHOLD = 0.35;     // Threshold to catch all face candidates on documents/cards
+const NMS_THRESHOLD = 0.3;        // IoU threshold to eliminate overlapping duplicates
+
+let cachedSession = null;
+
+let activeFaceProvider = 'WASM';
+
+/**
+ * Loads and caches the YuNet Face Detector ONNX session.
+ */
+export async function loadFaceDetector() {
+  if (!cachedSession) {
+    cachedSession = await ort.InferenceSession.create(MODEL_PATH, {
+      executionProviders: ['wasm'],
+    });
+  }
+  return cachedSession;
+}
+
+/**
+ * Decodes the 12 raw tensor outputs from YuNet (strides 8, 16, 32)
+ * into pixel coordinates scaled back to original image dimensions.
+ */
+function decodeYuNetOutput(response, origW, origH) {
+  const strides = [8, 16, 32];
+  const candidates = [];
+
+  for (const stride of strides) {
+    const cols = Math.floor(INPUT_SIZE / stride);
+    const rows = Math.floor(INPUT_SIZE / stride);
+
+    const cls = response[`cls_${stride}`]?.data;
+    const obj = response[`obj_${stride}`]?.data;
+    const bbox = response[`bbox_${stride}`]?.data;
+    const kps = response[`kps_${stride}`]?.data;
+
+    if (!cls || !obj || !bbox) continue;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+
+        // Combined face confidence = sqrt(classification * objectness)
+        const clsScore = Math.min(Math.max(cls[idx], 0), 1);
+        const objScore = Math.min(Math.max(obj[idx], 0), 1);
+        const score = Math.sqrt(clsScore * objScore);
+
+        if (score < SCORE_THRESHOLD) continue;
+
+        // Decode bounding box offsets on 640x640 space
+        const cx = (c + bbox[idx * 4 + 0]) * stride;
+        const cy = (r + bbox[idx * 4 + 1]) * stride;
+        const w = Math.exp(bbox[idx * 4 + 2]) * stride;
+        const h = Math.exp(bbox[idx * 4 + 3]) * stride;
+
+        const x1 = cx - w / 2;
+        const y1 = cy - h / 2;
+
+        // Scale factors to map 640x640 coordinates back to original image dimensions
+        const scaleX = origW / INPUT_SIZE;
+        const scaleY = origH / INPUT_SIZE;
+
+        // 5 facial landmarks (right eye, left eye, nose, right mouth, left mouth)
+        const landmarks = [];
+        if (kps) {
+          for (let n = 0; n < 5; n++) {
+            landmarks.push({
+              x: (c + kps[idx * 10 + 2 * n]) * stride * scaleX,
+              y: (r + kps[idx * 10 + 2 * n + 1]) * stride * scaleY,
+            });
+          }
+        }
+
+        candidates.push({
+          x: Math.max(0, x1 * scaleX),
+          y: Math.max(0, y1 * scaleY),
+          width: Math.min(origW, w * scaleX),
+          height: Math.min(origH, h * scaleY),
+          score: Math.round(score * 100) / 100,
+          landmarks,
+        });
+      }
+    }
+  }
+
+  // Non-Maximum Suppression (NMS)
+  candidates.sort((a, b) => b.score - a.score);
+  const finalFaces = [];
+
+  for (const box of candidates) {
+    let keep = true;
+    for (const chosen of finalFaces) {
+      const x1 = Math.max(box.x, chosen.x);
+      const y1 = Math.max(box.y, chosen.y);
+      const x2 = Math.min(box.x + box.width, chosen.x + chosen.width);
+      const y2 = Math.min(box.y + box.height, chosen.y + chosen.height);
+
+      const interW = Math.max(0, x2 - x1);
+      const interH = Math.max(0, y2 - y1);
+      const interArea = interW * interH;
+      const unionArea = box.width * box.height + chosen.width * chosen.height - interArea;
+      const iou = unionArea > 0 ? interArea / unionArea : 0;
+
+      if (iou > NMS_THRESHOLD) {
+        keep = false;
+        break;
+      }
+    }
+    if (keep) finalFaces.push(box);
+  }
+
+  return finalFaces;
+}
+
+/**
+ * Executes full on-device Face Detection pipeline on an Image or Canvas element.
+ * @param {HTMLImageElement|HTMLCanvasElement} img - Source image element
+ * @returns {Promise<{ faces: Array, timeTaken: number }>}
+ */
+export async function detectFaces(img) {
+  if (!img) return { faces: [], timeTaken: 0 };
+  const startTime = performance.now();
+
+  const session = await loadFaceDetector();
+
+  // 1. Offscreen Canvas: Resize image to 640x640 expected by YuNet
+  const offscreen = document.createElement('canvas');
+  offscreen.width = INPUT_SIZE;
+  offscreen.height = INPUT_SIZE;
+
+  const ctx = offscreen.getContext('2d');
+  ctx.drawImage(img, 0, 0, INPUT_SIZE, INPUT_SIZE);
+
+  const { data } = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE); // RGBA pixel array
+
+  // 2. Preprocessing: Convert RGBA interleaved (0-255) to Planar BGR Float32
+  // Shape required: [1, 3, 640, 640] (Blue, Green, Red channels)
+  const totalPixels = INPUT_SIZE * INPUT_SIZE;
+  const float32Data = new Float32Array(3 * totalPixels);
+  const gOffset = totalPixels;
+  const rOffset = 2 * totalPixels;
+
+  for (let i = 0, j = 0; i < totalPixels; i++, j += 4) {
+    float32Data[i] = data[j + 2];          // B (Blue)
+    float32Data[gOffset + i] = data[j + 1]; // G (Green)
+    float32Data[rOffset + i] = data[j];     // R (Red)
+  }
+
+  const inputTensor = new ort.Tensor('float32', float32Data, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+
+  // 3. Inference
+  const inputName = session.inputNames[0];
+  const response = await session.run({ [inputName]: inputTensor });
+
+  // 4. Decode
+  const origW = img.naturalWidth || img.width;
+  const origH = img.naturalHeight || img.height;
+  const faces = decodeYuNetOutput(response, origW, origH);
+  const timeTaken = Math.round(performance.now() - startTime);
+
+  return { faces, timeTaken, provider: activeFaceProvider };
+}
