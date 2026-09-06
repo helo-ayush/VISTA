@@ -27,7 +27,7 @@ __pycache__/
 
 # Scratch and test data
 data.json
-scratch/test_*
+scratch/
 
 # Model Training Artifacts
 training/data/*.jsonl
