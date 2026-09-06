@@ -77,7 +77,7 @@ export function resetNERPipeline() {
   cachedNERPipeline = null;
 }
 
-// Comprehensive UI, E-Commerce, Navigation and Button Stopwords (Never PII)
+// Comprehensive UI, E-Commerce, Navigation, Browser Chrome and App Stopwords (Never PII)
 export const UI_STOPWORDS = new Set([
   'home', 'account', 'my account', 'order', 'orders', 'my orders', 'my', 'invoice',
   'download', 'download invoice', 'return', 'exchange', 'cart', 'more', 'seller',
@@ -93,11 +93,21 @@ export const UI_STOPWORDS = new Set([
   'furniture', 'sports', 'sports, books & more', 'flights', 'offer zone', 'zone',
   'save', 'cancel', 'submit', 'select', 'try', 'sample', 'icon', 'logo', 'button',
   'close', 'open', 'menu', 'nav', 'header', 'footer', 'next', 'prev', 'back', 'help',
-  'login', 'logout', 'sign in', 'sign out', 'settings', 'profile'
+  'login', 'logout', 'sign in', 'sign out', 'settings', 'profile',
+  // Browser Tabs, Bookmarks, Navigation & E-Commerce App Categories
+  'online', 'shopping', 'online shopping', 'store', 'site', 'travel', 'fashion', 'mobiles',
+  'beauty', 'toys', 'food', 'auto', 'books', 'wheeler', 'korean', 'shirts', 'jeans',
+  'sneakers', 'watches', 'backpacks', 'tees', 'athleisure', 'formals', 'festivals',
+  'india', 'kurta', 'dresses', 'casual', 'luggage', 'jewellery', 'sarees', 'trousers',
+  'kurtis', 'drips', 'loved ones', 'loved', 'ones', 'shop', 'shop for',
+  'maps', 'google maps', 'gmail', 'youtube', 'whatsapp', 'tab', 'new tab', 'bookmarks',
+  'all bookmarks', 'dashboard', 'clerk', 'gemini', 'ask gemini', 'chrome', 'browser',
+  'geforce', 'geforce now', 'send anywhere', 'vista', 'modeltesting', 'github', 'github.com',
+  'youknow', 'gen z', 'gen'
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
-export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Microsoft|Apple|Netflix|CultX|Search|Explore)\b/i;
+export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore)\b/i;
 
 // Valid ISO 3166-1 alpha-2 country codes used in real international IBANs
 const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR|GE|DE|GI|GR|GL|GT|HU|IS|IE|IL|IT|JO|KZ|XK|KW|LV|LB|LI|LT|LU|MK|MT|MR|MU|MD|MC|ME|NL|NO|PK|PS|PL|PT|QA|RO|SM|SA|RS|SK|SI|ES|SE|CH|TN|TR|AE|GB|VA';
@@ -193,8 +203,8 @@ export const REGEX_RULES = [
   { pattern: /\b(?:Near|Opposite|Behind|Beside|Next to|Adjacent to|Above|Below)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
   { pattern: /\b(?:Vill(?:age)?\b|P\.O\.\b|Post\s*Office\b|Dist(?:rict)?\b|Taluk[a]?\b|Teh(?:sil)?\b|Mandal\b)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
 
-  // 28. Informal Indian Housing Prefixes (Room, Chawl, Gali)
-  { pattern: /\b(?:Room|Chawl|Gali|House|Shop)\s*(?:No\.?|#|Number)?\s*[:-]?\s*[A-Z0-9/-]{1,10}\b/gi, tag: 'ADDRESS' },
+  // 28. Informal Indian Housing Prefixes (Room, Chawl, Gali) - requires word boundary and digits or explicit No/#
+  { pattern: /\b(?:Room|Chawl|Gali|House|Shop)\b\s*(?:(?:No\.?|#|Number)\s*[:-]?\s*[A-Z0-9/-]+|\d+[A-Za-z]?(?:[-/]\d+)?)\b/gi, tag: 'ADDRESS' },
 ];
 
 // --- 2. CONTEXTUAL ADDRESS & BIRTHPLACE HEADERS ---
@@ -222,14 +232,16 @@ const ST = STREET_TYPES.map(esc).join('|') + '|Dr';
 const DIR       = 'N|S|E|W|NE|NW|SE|SW|North|South|East|West';
 const UNITS     = 'Suite|Ste|Apt|Apartment|Unit|Floor|Fl|Office|Room|Rm|Flat|Plot|Tower|Block|Bldg|Building|Shop|Hse';
 const US_STATES = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
-const COUNTRIES = [
+const COUNTRIES_LIST = [
   'United States of America','United States','United Kingdom','United Arab Emirates','South Korea',
   'South Africa','New Zealand','Sri Lanka','Saudi Arabia','India','USA','UK','UAE','Canada','Australia',
   'Germany','France','Netherlands','Belgium','Spain','Italy','Switzerland','Sweden','Singapore','Malaysia',
   'Indonesia','Philippines','Japan','China','Qatar','Kuwait','Oman','Bahrain','Nigeria','Kenya','Brazil',
   'Mexico','Argentina','Russia','Poland','Portugal','Ireland','Scotland','England','Vietnam','Thailand',
   'Pakistan','Bangladesh','Nepal','Maldives','Turkey','Egypt','Greece','Austria','Denmark','Norway','Finland'
-].map(esc).join('|');
+];
+const COUNTRIES = COUNTRIES_LIST.map(esc).join('|');
+const COUNTRIES_SET = new Set(COUNTRIES_LIST.map(c => c.toLowerCase()));
 
 const UPGRADED_ADDRESS_PATTERNS = [
   // A. Number-first streets
@@ -357,13 +369,29 @@ function extractNERSpans(rawResults, line) {
     const extractedText = line.substring(firstIdx, endIdx).trim();
     const cleanLower = extractedText.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
 
-    // Skip short tokens (< 3 chars), UI stopwords, strings without alphabets, or company/organization names
+    // Skip short tokens (< 3 chars), UI stopwords, strings without alphabets, company/organization names, or country names
     if (
       cleanLower.length < 3 ||
       UI_STOPWORDS.has(cleanLower) ||
       !/[a-zA-Z]/.test(extractedText) ||
       COMPANY_INDICATORS.test(extractedText) ||
-      COMPANY_INDICATORS.test(cleanLower)
+      COMPANY_INDICATORS.test(cleanLower) ||
+      (isName && COUNTRIES_SET.has(cleanLower))
+    ) {
+      searchIdx = endIdx;
+      continue;
+    }
+
+    // Reject code identifiers, repo slugs, file paths, or URLs (containing or adjacent to '/' or '_')
+    const charBefore = firstIdx > 0 ? line.charAt(firstIdx - 1) : '';
+    const charAfter = endIdx < line.length ? line.charAt(endIdx) : '';
+    if (
+      extractedText.includes('_') ||
+      extractedText.includes('/') ||
+      charBefore === '/' ||
+      charBefore === '_' ||
+      charAfter === '/' ||
+      charAfter === '_'
     ) {
       searchIdx = endIdx;
       continue;

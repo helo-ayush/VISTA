@@ -32,6 +32,11 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       continue;
     }
 
+    // Reject code identifiers, repo slugs, file paths, or URLs (containing '/' or '_')
+    if (cleanLower.includes('_') || itemText.includes('/') || itemText.includes('_')) {
+      continue;
+    }
+
     // Skip UI category lists or multi-word navigation where >= 50% of words are UI stopwords
     const words = cleanLower.split(/[\s,&/+-]+/).filter(w => w.length >= 2);
     if (words.length > 0) {
