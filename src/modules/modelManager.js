@@ -142,15 +142,35 @@ export async function preloadAllModels(onProgress) {
     report('Downloading BERT-NER weights (109 MB)...', 0, 16);
     await getNERPipeline((item) => {
       if (item && item.progress !== undefined) {
-        // Map BERT-NER progress (0-100%) to overall 16% - 100%
-        const overallProgress = Math.round(16 + (item.progress * 0.84));
-        const bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : (item.progress / 100) * 109;
+        const isTotal = item.status === 'progress_total';
+        const isModel = item.file && item.file.includes('model');
+        const filename = item.file ? item.file.replace(/^.*[\\\/]/, '') : '';
+
+        let bertProgress = 0;
+        let bertLoadedMB = 0;
+
+        if (isTotal) {
+          bertProgress = item.progress;
+          bertLoadedMB = (item.progress / 100) * 109;
+        } else if (isModel) {
+          bertProgress = item.progress;
+          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : (item.progress / 100) * 109;
+        } else {
+          // Metadata or tokenizer files (config.json, tokenizer.json ~1MB total)
+          bertProgress = Math.min(item.progress * 0.03, 3); // Max 3% contribution so it never jumps to 90% prematurely
+          bertLoadedMB = item.loaded ? item.loaded / (1024 * 1024) : 0.8;
+        }
+
+        const overallProgress = Math.round(16 + (bertProgress * 0.83));
         const totalNowMB = parseFloat((6.7 + bertLoadedMB).toFixed(1));
+
         if (onProgress) {
           onProgress({
-            progress: Math.min(overallProgress, 99),
-            stage: item.file ? `Downloading ${item.file} (${Math.round(item.progress)}%)...` : 'Downloading BERT-NER weights...',
-            loadedMB: totalNowMB,
+            progress: Math.min(Math.max(overallProgress, 16), 99),
+            stage: filename
+              ? `Downloading ${filename} (${Math.round(item.progress)}%)...`
+              : 'Downloading BERT-NER weights...',
+            loadedMB: Math.min(totalNowMB, totalMB),
             totalMB
           });
         }

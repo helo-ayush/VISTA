@@ -1,9 +1,9 @@
 import { pipeline, env } from '@huggingface/transformers';
 import { getAssetUrl } from '../utils/assetHelper.js';
 
-// Configure transformers.js to load 100% locally from /models/Xenova (Offline WASM with Cache API persistence)
+// Configure transformers.js to load locally with persistent browser caching and graceful CDN fallback
 env.allowLocalModels = true;
-env.allowRemoteModels = false;
+env.allowRemoteModels = true;
 env.useBrowserCache = true;
 
 // Lines that only contain structured key-value fields already 100% matched by deterministic regex
@@ -14,13 +14,61 @@ export const activeNEREngineName = 'Local Xenova BERT-NER (Offline WASM) + Regex
 
 export async function getNERPipeline(onProgress = null) {
   if (!cachedNERPipeline) {
-    const modelPath = getAssetUrl('models/Xenova');
-    cachedNERPipeline = await pipeline('token-classification', modelPath, {
-      quantized: true,
-      subfolder: '',
-      local_files_only: true,
-      progress_callback: onProgress || undefined
-    });
+    const localModelPath = getAssetUrl('models/Xenova');
+    let loaded = false;
+
+    // 1. Pre-flight check: verify local quantized ONNX binary exists and is not a 404 HTML page or LFS pointer
+    let isLocalValid = false;
+    if (typeof window !== 'undefined' && window.fetch) {
+      try {
+        const testUrl = getAssetUrl('models/Xenova/model_quantized.onnx');
+        const testRes = await fetch(testUrl, { method: 'HEAD' });
+        if (testRes.ok) {
+          const cl = parseInt(testRes.headers.get('content-length') || '0', 10);
+          if (cl > 1024 * 1024) {
+            isLocalValid = true;
+          } else if (cl === 0) {
+            // If Content-Length header is omitted by web server, sample the initial bytes
+            const rangeRes = await fetch(testUrl, { headers: { Range: 'bytes=0-200' } });
+            if (rangeRes.ok) {
+              const buf = await rangeRes.arrayBuffer();
+              const sample = new TextDecoder().decode(buf);
+              if (!sample.startsWith('version https://git-lfs') && !sample.includes('<!DOCTYPE') && !sample.includes('<html')) {
+                isLocalValid = true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[PIIDetector] Local model pre-flight check notice:', e);
+      }
+    } else {
+      isLocalValid = true;
+    }
+
+    // 2. Load from local public assets if validated
+    if (isLocalValid) {
+      try {
+        console.log('[PIIDetector] Loading quantized BERT-NER model from local assets...');
+        cachedNERPipeline = await pipeline('token-classification', localModelPath, {
+          dtype: 'q8',
+          subfolder: '',
+          progress_callback: onProgress || undefined
+        });
+        loaded = true;
+      } catch (localErr) {
+        console.warn('[PIIDetector] Local quantized model load failed, falling back to Hugging Face CDN:', localErr);
+      }
+    }
+
+    // 3. Graceful fallback: load directly from Hugging Face Hub (Xenova/bert-base-NER) with dtype 'q8'
+    if (!loaded) {
+      console.log('[PIIDetector] Loading official Xenova/bert-base-NER from Hugging Face CDN (cached in browser)...');
+      cachedNERPipeline = await pipeline('token-classification', 'Xenova/bert-base-NER', {
+        dtype: 'q8',
+        progress_callback: onProgress || undefined
+      });
+    }
   }
   return { ner: cachedNERPipeline, engine: activeNEREngineName };
 }
