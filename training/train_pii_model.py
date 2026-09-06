@@ -1,22 +1,20 @@
 """
 Fine-Tuning Script for In-Browser MiniLM-L6 PII Token Classifier
-Specialized for:
+Specialized exclusively for:
   - NAME (B-NAME, I-NAME)
   - ADDRESS (B-ADDR, I-ADDR)
   - O (Non-PII text)
 
 Supports:
-  - High-speed training on PyTorch (GPU or CPU)
-  - Subword label alignment with fast tokenizer
-  - Automated ONNX export & INT8 quantization
-  - Output size: ~25 MB (Ideal for client-side WASM browser inference)
+  - 100% resilient: Works with native PyTorch Dataset (no external `datasets` lib strictly required)
+  - Fast tokenization and subword alignment
+  - Automated ONNX export & dynamic INT8 quantization (~25 MB output)
 """
 
 import os
 import json
 import torch
-import numpy as np
-from datasets import Dataset
+from torch.utils.data import Dataset as TorchDataset
 from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
@@ -27,75 +25,79 @@ from transformers import (
 import onnx
 from onnxruntime.quantization import quantize_dynamic, QuantType
 
-# Label definitions
 LABEL_LIST = ["O", "B-NAME", "I-NAME", "B-ADDR", "I-ADDR"]
 ID2LABEL = {i: label for i, label in enumerate(LABEL_LIST)}
 LABEL2ID = {label: i for i, label in enumerate(LABEL_LIST)}
 
-# Base model: MiniLM-L6 is extraordinarily fast, accurate, and lightweight
 BASE_MODEL = "microsoft/MiniLM-L6-v2"
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output_model")
 ONNX_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
 
-def load_jsonl(filepath, limit=None):
-    texts = []
-    ner_tags_list = []
-    tokens_list = []
-    
-    with open(filepath, "r", encoding="utf-8") as f:
-        for idx, line in enumerate(f):
-            if limit and idx >= limit:
-                break
-            record = json.loads(line.strip())
-            texts.append(record["text"])
-            tokens_list.append(record["tokens"])
-            # Map string tags to integer IDs
-            int_tags = [LABEL2ID.get(tag, 0) for tag in record["ner_tags"]]
-            ner_tags_list.append(int_tags)
+class PiiJsonlDataset(TorchDataset):
+    """
+    Pure PyTorch Dataset that loads directly from JSONL without needing
+    heavy external libraries (pyarrow, datasets, pandas).
+    """
+    def __init__(self, filepath, tokenizer, max_samples=None):
+        self.tokenizer = tokenizer
+        self.records = []
+        
+        print(f"Reading {filepath}...")
+        with open(filepath, "r", encoding="utf-8") as f:
+            for idx, line in enumerate(f):
+                if max_samples and idx >= max_samples:
+                    break
+                rec = json.loads(line.strip())
+                int_tags = [LABEL2ID.get(t, 0) for t in rec["ner_tags"]]
+                self.records.append((rec["tokens"], int_tags))
 
-    return Dataset.from_dict({
-        "tokens": tokens_list,
-        "ner_tags": ner_tags_list
-    })
+        print(f"Loaded {len(self.records):,} samples.")
 
-def tokenize_and_align_labels(examples, tokenizer):
-    tokenized_inputs = tokenizer(
-        examples["tokens"],
-        truncation=True,
-        is_split_into_words=True,
-        max_length=256
-    )
+    def __len__(self):
+        return len(self.records)
 
-    labels = []
-    for i, label in enumerate(examples["ner_tags"]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)
-        previous_word_idx = None
+    def __getitem__(self, idx):
+        tokens, ner_tags = self.records[idx]
+
+        tokenized = self.tokenizer(
+            tokens,
+            truncation=True,
+            is_split_into_words=True,
+            max_length=256
+        )
+
+        word_ids = tokenized.word_ids()
         label_ids = []
+        prev_word_idx = None
+
         for word_idx in word_ids:
             if word_idx is None:
                 label_ids.append(-100)
-            elif word_idx != previous_word_idx:
-                label_ids.append(label[word_idx] if word_idx < len(label) else -100)
+            elif word_idx != prev_word_idx:
+                label_ids.append(ner_tags[word_idx] if word_idx < len(ner_tags) else -100)
             else:
-                # Subword continuation: if B-TAG, map to I-TAG
-                original_tag_id = label[word_idx] if word_idx < len(label) else -100
-                if original_tag_id != -100:
-                    tag_name = ID2LABEL[original_tag_id]
+                # Subword continuation (B-TAG becomes I-TAG)
+                orig_tag_id = ner_tags[word_idx] if word_idx < len(ner_tags) else -100
+                if orig_tag_id != -100:
+                    tag_name = ID2LABEL[orig_tag_id]
                     if tag_name.startswith("B-"):
                         tag_name = "I-" + tag_name[2:]
                     label_ids.append(LABEL2ID[tag_name])
                 else:
                     label_ids.append(-100)
-            previous_word_idx = word_idx
+            prev_word_idx = word_idx
 
-        labels.append(label_ids)
-
-    tokenized_inputs["labels"] = labels
-    return tokenized_inputs
+        return {
+            "input_ids": tokenized["input_ids"],
+            "attention_mask": tokenized["attention_mask"],
+            "labels": label_ids
+        }
 
 def export_to_onnx(pytorch_model_dir, onnx_dir):
     """Exports trained PyTorch checkpoint to ONNX and quantizes to INT8 (~25MB)"""
-    print("\n--- Exporting Fine-Tuned Model to ONNX & INT8 Quantization ---")
+    print("\n" + "="*60)
+    print("Exporting Fine-Tuned Model to ONNX & INT8 Quantization")
+    print("="*60)
     os.makedirs(onnx_dir, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(pytorch_model_dir)
@@ -120,10 +122,10 @@ def export_to_onnx(pytorch_model_dir, onnx_dir):
         },
         opset_version=14
     )
-    print(f"✓ Base ONNX model exported to: {raw_onnx_path}")
+    print(f"[OK] Base ONNX model exported to: {raw_onnx_path}")
 
-    # Quantize to INT8
-    print("Applying dynamic INT8 quantization for fast browser WASM execution...")
+    # Apply dynamic INT8 quantization for browser WASM speed
+    print("Applying dynamic INT8 quantization for browser WASM execution...")
     quantize_dynamic(
         model_input=raw_onnx_path,
         model_output=quantized_onnx_path,
@@ -131,11 +133,11 @@ def export_to_onnx(pytorch_model_dir, onnx_dir):
     )
 
     size_mb = os.path.getsize(quantized_onnx_path) / (1024 * 1024)
-    print(f"✓ Quantized Model ready: {quantized_onnx_path} ({size_mb:.1f} MB)")
+    print(f"[OK] Quantized Model ready: {quantized_onnx_path} ({size_mb:.1f} MB)")
 
     # Save tokenizer assets into onnx_dir so it can be dropped straight into public/models/
     tokenizer.save_pretrained(onnx_dir)
-    print("✓ Tokenizer configuration saved.")
+    print("[OK] Tokenizer configuration saved into onnx folder.")
 
 def main():
     data_dir = os.path.join(os.path.dirname(__file__), "data")
@@ -147,14 +149,7 @@ def main():
         from generate_dataset import main as gen_main
         gen_main()
 
-    print(f"Loading datasets from {data_dir}...")
-    # For fast local testing, limit can be set, or full 95,000 for training
-    train_dataset = load_jsonl(train_file)
-    val_dataset = load_jsonl(val_file)
-
-    print(f"Train samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
     print(f"Loading Base Tokenizer & Model: {BASE_MODEL}...")
-
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     model = AutoModelForTokenClassification.from_pretrained(
         BASE_MODEL,
@@ -163,20 +158,25 @@ def main():
         label2id=LABEL2ID
     )
 
-    print("Tokenizing and aligning subword labels...")
-    train_tokenized = train_dataset.map(lambda ex: tokenize_and_align_labels(ex, tokenizer), batched=True)
-    val_tokenized = val_dataset.map(lambda ex: tokenize_and_align_labels(ex, tokenizer), batched=True)
+    # Load datasets
+    train_dataset = PiiJsonlDataset(train_file, tokenizer)
+    val_dataset = PiiJsonlDataset(val_file, tokenizer)
 
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
 
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Training device: {device_str.upper()}")
+    print(f"\nTraining device: {device_str.upper()}")
+
+    # Determine batch size:
+    # On CPU, batch size 16 allows smooth execution without RAM pressure
+    # On GPU, batch size 32 is optimal
+    batch_size = 32 if torch.cuda.is_available() else 16
 
     training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
         learning_rate=3e-5,
-        per_device_train_batch_size=32 if torch.cuda.is_available() else 8,
-        per_device_eval_batch_size=32 if torch.cuda.is_available() else 8,
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
         num_train_epochs=3,
         weight_decay=0.01,
         eval_strategy="epoch",
@@ -191,22 +191,25 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_tokenized,
-        eval_dataset=val_tokenized,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
         processing_class=tokenizer,
         data_collator=data_collator,
     )
 
-    print("\nStarting Fine-Tuning...")
+    print("\n" + "="*60)
+    print("Starting Fine-Tuning MiniLM-L6 on 100K Indian PII Dataset...")
+    print("="*60)
     trainer.train()
 
     print(f"\nSaving PyTorch model checkpoint to {OUTPUT_DIR}...")
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
 
-    # Export to ONNX
+    # Export directly to quantized browser ONNX
     export_to_onnx(OUTPUT_DIR, ONNX_OUTPUT_DIR)
     print("\n[SUCCESS] Model training and browser ONNX export complete!")
+    print(f"To deploy, copy contents of '{ONNX_OUTPUT_DIR}' to 'public/models/Xenova/'")
 
 if __name__ == "__main__":
     main()
