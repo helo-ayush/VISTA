@@ -53,6 +53,32 @@ export async function resetPaddleOCR() {
 }
 
 /**
+ * Repairs common OCR corruption in email addresses so downstream PII detection sees
+ * clean text. PP-OCR frequently inserts stray spaces around "@" and inside domain/TLD
+ * tokens, e.g. "s.jenkins@ vanguard-nexus.com", "name(@ g mail.co m", "john.doe @ gmail . com".
+ *
+ * Collapses those back to a single canonical token. Deliberately conservative: only fires
+ * on a local-part (2-64 chars) + "@" + dotted domain + 2-6 letter TLD, and leaves handles
+ * ("@ Geforce"), prose ("mention @ home"), multi-label domains (".co.in"), and non-email
+ * text untouched.
+ */
+export function repairEmailArtifacts(text) {
+  if (!text || !text.includes("@")) return text;
+  return text.replace(
+    /([A-Za-z0-9._%+-]{2,64})\s*(?:\(\s*)?@\s*([A-Za-z0-9_-]+(?:\s+[A-Za-z0-9_-]+)*?)\s*\.\s*([A-Za-z](?:\s?[A-Za-z]){1,5})(?!\s*\.\s*[A-Za-z])(?=[^A-Za-z]|$)/g,
+    (match, local, domain, tld) => {
+      const d = domain.replace(/\s+/g, "");
+      const t = tld.replace(/\s+/g, "");
+      if (!/^[A-Za-z0-9_-]+$/.test(d) || !/^[A-Za-z]{2,6}$/.test(t) || d.length < 2) {
+        return match;
+      }
+      return local + "@" + d + "." + t;
+    }
+  );
+}
+
+
+/**
  * Runs high-accuracy accelerated OCR on an ArrayBuffer image.
  * @param {ArrayBuffer} arrayBuffer - Image data
  * @returns {Promise<{ fullText: string, items: Array, timeTaken: number, providerUsed: string }>}
@@ -69,22 +95,23 @@ export async function runDocumentOCR(arrayBuffer) {
   let items = [];
   if (ocrResult.lines && Array.isArray(ocrResult.lines)) {
     items = ocrResult.lines.flat().map(r => ({
-      text: (r.text || '').trim(),
+      text: repairEmailArtifacts((r.text || '').trim()),
       confidence: r.confidence,
       box: r.box
     })).filter(r => r.text.length > 0);
   } else if (ocrResult.results && Array.isArray(ocrResult.results)) {
     items = ocrResult.results.map(r => ({
-      text: (r.text || '').trim(),
+      text: repairEmailArtifacts((r.text || '').trim()),
       confidence: r.confidence,
       box: r.box
     })).filter(r => r.text.length > 0);
   }
 
   // Extract natural full multi-line document text
-  const fullDocText = ocrResult.text && ocrResult.text.trim()
+  const fullDocText = repairEmailArtifacts(ocrResult.text && ocrResult.text.trim()
     ? ocrResult.text.trim()
-    : items.map(i => i.text).join('\n');
+    : items.map(i => i.text).join('\n')
+  );
 
   const timeTaken = Math.round(performance.now() - startTime);
 

@@ -167,8 +167,8 @@ const IBAN_COUNTRIES = 'AL|AD|AT|AZ|BH|BE|BA|BR|BG|CR|HR|CY|CZ|DK|DO|EE|FO|FI|FR
 
 // --- 1. COMPREHENSIVE REGEX SUITE (INDIAN + GLOBAL) ---
 export const REGEX_RULES = [
-  // 1. Email Addresses (handles standard & OCR spaced formats like name@ gmail.com)
-  { pattern: /\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
+  // 1. Email Addresses (standard format; also tolerates OCR stray "(" before "@" and spaces around the domain dot, e.g. "name(@gmail.com", "name@ gmail . com")
+  { pattern: /\b[A-Za-z0-9._%+-]+\s*\(?\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b/gi, tag: 'EMAIL' },
 
   // 2. UPI IDs / VPA (non-capturing group so full VPA name@handle is always redacted)
   { pattern: /\b[a-zA-Z0-9.\-_]{2,64}@(?:okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|upi|axl|apl|barodampay|postbank|kotak|icici|sbi|hdfcbank)\b/gi, tag: 'UPI_ID' },
