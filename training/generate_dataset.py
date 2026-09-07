@@ -42,7 +42,9 @@ INDIAN_FIRST_NAMES_MALE = [
     "Karthik", "Venkatesh", "Srinivas", "Subramanian", "Murugan", "Senthil", "Praveen", "Mahesh",
     "Sudhir", "Satyanarayana", "Ranganathan", "Narayanan", "Gopalan", "Balaji", "Raghavan",
     "Anirudh", "Siddharth", "Tejas", "Chaitanya", "Shantanu", "Suyash", "Swapnil", "Omkar",
-    "Tanmay", "Saurabh", "Chinmay", "Bhushan", "Avinash", "Prashant", "Sachin", "Nilesh"
+    "Tanmay", "Saurabh", "Chinmay", "Bhushan", "Avinash", "Prashant", "Sachin", "Nilesh",
+    "Upnesh", "Jagannath", "Shravan", "Mukund", "Ramlal", "Sitaram", "Satyanarayan", "Gopal",
+    "Brijesh", "Lalitesh", "Ramakant", "Chandresh", "Mithilesh", "Awadhesh", "Parmeshwar", "Bishnu"
 ]
 
 INDIAN_FIRST_NAMES_FEMALE = [
@@ -57,7 +59,8 @@ INDIAN_FIRST_NAMES_FEMALE = [
     "Parveen", "Shabana", "Tahira", "Yasmeen", "Deepika", "Kareena", "Katrina", "Shraddha",
     "Alia", "Anushka", "Madhuri", "Juhi", "Kajol", "Rani", "Vidya", "Kangana", "Taapsee",
     "Lakshmi", "Saraswati", "Parvati", "Gayatri", "Bhavani", "Meenakshi", "Soundarya", "Revathi",
-    "Sujatha", "Padma", "Uma", "Vasantha", "Hemalatha", "Nandini", "Shubha", "Deepa", "Sandhya"
+    "Sujatha", "Padma", "Uma", "Vasantha", "Hemalatha", "Nandini", "Shubha", "Deepa", "Sandhya",
+    "Madhu", "Kanti", "Urmila", "Lalita", "Manorama", "Champa", "Basanti", "Phoolo", "Kaushalya"
 ]
 
 GLOBAL_FIRST_NAMES = [
@@ -96,6 +99,10 @@ INDIAN_SURNAMES = [
     # Muslim
     "Khan", "Ahmed", "Ali", "Sheikh", "Ansari", "Siddiqui", "Qureshi", "Malik", "Mirza", "Baig",
     "Sayed", "Kazmi", "Rizvi", "Naqvi", "Zaidi", "Usmani", "Farooqi", "Nomani", "Hashmi",
+    # Bihar / Eastern / UP Rural & Regional
+    "Mahto", "Mahato", "Paswan", "Mandal", "Prasad", "Thakur", "Kushwaha", "Manjhi", "Sah",
+    "Sahu", "Keshri", "Chaudhary", "Choudhary", "Jha", "Mishra", "Pandey", "Tiwari", "Yadav",
+    "Ram", "Raut", "Bhagat", "Khatun", "Khatoon", "Das", "Sahni", "Mukhiya", "Kumari",
     # Christian / Anglo-Indian
     "D'Souza", "Fernandes", "Pereira", "Rodrigues", "Pinto", "Lobo", "Sequeira", "Mascarenhas",
     "Cardozo", "Coutinho", "Britto", "Furtado", "Nazareth", "Saldanha", "Menezes", "Thomas",
@@ -269,7 +276,32 @@ TEMPLATES = [
     # Standalone Fields
     "Name: {name}\nAddress: {address}",
     "{name}, {address}",
-    "Name: {name} | Location: {address}"
+    "Name: {name} | Location: {address}",
+
+    # Academic & University Examination Templates
+    "Examination Admit Card\nName: {name}\nRoll No. : {roll}\nInstitution : MAIT (Code: 148)\nProgramme : BTECH(CSE), Batch of: 2024, Code: 027",
+    "GURU GOBIND SINGH INDRAPRASTHA UNIVERSITY, DELHI\nExamination Admit Card\nName: {name}\nRoll No: {roll}\nInstitution: MAIT (Code: 148)",
+    "Student Identity Card\nName: {name}\nEnrollment No: {roll}\nDepartment: Computer Science & Engineering\nResidential Address: {address}",
+    "Delhi Technological University (DTU)\nCandidate Name: {name}\nRoll No: {roll}\nPapers Appearing in: 027103(BS103) 027105(BS105)",
+    "Provisional Degree Certificate\nThis is to certify that {name}, Roll No. {roll}, resident of {address}, has completed BTECH.",
+    "Hall Ticket: {name}\nCenter: {address}\nReporting Time: 08:30 AM\nController of Examination",
+
+    # Bank Passbook & Account Holder Templates
+    "UTTAR BIHAR GRAMIN BANK\nName Of Account Holder : {name}\nFather's/Husband's Name : {relative}\nVillage: {address}\nAccount No:-...1000671030057180\nIFSC Code:- CBINOR10001",
+    "Bank Passbook\nName Of Account Holder : {name}\nFather's/Husband's Name : {relative}\nPermanent Address: {address}\nBranch: Rural Development Branch",
+    "STATE BANK OF INDIA\nAccount Holder Name: {name}\nS/o: {relative}\nAddress: {address}\nAccount Status: Active",
+    "PUNJAB NATIONAL BANK\nCustomer Name: {name}\nC/o: {relative}\nCommunication Address: {address}",
+    "Customer KYC Form\nPrimary Account Holder: {name}\nSpouse Name: {relative}\nResidential Address: {address}",
+
+    # Board Marksheet & Certificate Templates
+    "अंक पत्रक MARK SHEET\nSECONDARY SCHOOL EXAMINATION\nनाम Name: {name}\nमाता का नाम Mother's Name: {relative}\nपिता का नाम Father's Name: {doctor}\nविद्यालय School: OBC GIRL'S RESIDENTIAL HIGH SCHOOL\nरोल कोड Roll Code 51059\nरोल नं० Roll No. {roll}",
+    "BIHAR SCHOOL EXAMINATION BOARD PATNA\nCandidate Name: {name}\nFather's Name: {relative}\nMother's Name: {doctor}\nBSEB Unique ID: 1232230590001\nExamination Center: {address}",
+    "CENTRAL BOARD OF SECONDARY EDUCATION\nStudent Name: {name}\nMother's Name: {relative}\nFather's Name: {doctor}\nRoll No: {roll}",
+
+    # Web Dashboard & User Management Table Templates
+    "Test users\n{name}\nakshitamoghaa@gmail.com\nJoined Jan 29, 2026",
+    "User Management Dashboard\nName: {name}\nEmail: dev_user_{num}@gmail.com\nLast signed in: Jan 29, 2026\nJoined: Jan 29, 2026",
+    "Team Directory\n{name} | rustagiraghav@gmail.com | Last Active: Feb 14, 2025 | Location: {address}"
 ]
 
 NON_PII_TEMPLATES = [
@@ -284,7 +316,68 @@ NON_PII_TEMPLATES = [
     "Order confirmation email has been sent. Track your live shipment via the mobile application.",
     "Privacy Notice: Data processed in compliance with global security regulations and encryption standards.",
     "Customer Support is available 24/7. Call toll free 1800-200-3000 for order inquiries.",
-    "Specifications: Dimensions 145 x 70 x 8 mm, Weight 175 grams, Li-Po 5000 mAh non-removable battery."
+    "Specifications: Dimensions 145 x 70 x 8 mm, Weight 175 grams, Li-Po 5000 mAh non-removable battery.",
+
+    # Calendar Dates, Months & Timestamps (Must NEVER be tagged as NAME)
+    "Jan 29, 2026 Last signed in Jan 29, 2026 Joined",
+    "Feb 14, 2025 Created at Feb 14, 2025 Updated at Feb 14, 2025",
+    "Mar 15, 2024 Date of Verification: Mar 15, 2024",
+    "Apr 01, 2026 Effective Date: Apr 01, 2026",
+    "May 20, 2025 Published on: May 20, 2025",
+    "Jun 30, 2026 Expiry Date: Jun 30, 2026",
+    "Jul 04, 2025 Registered on: Jul 04, 2025",
+    "Aug 15, 2026 Holiday Calendar: Aug 15, 2026",
+    "Sep 05, 2024 Assessment Date: Sep 05, 2024",
+    "Oct 31, 2025 Renewal Date: Oct 31, 2025",
+    "Nov 14, 2024 Issue Date: Nov 14, 2024",
+    "Dec 25, 2026 System Maintenance: Dec 25, 2026",
+    "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec 2024 2025 2026 2027",
+    "January February March April May June July August September October November December",
+    "Monday Tuesday Wednesday Thursday Friday Saturday Sunday Mon Tue Wed Thu Fri Sat Sun",
+
+    # Academic & University Examination Non-PII Templates
+    "GURU GOBIND SINGH INDRAPRASTHA UNIVERSITY, DELHI Examination Admit Card COE/EXAM/PO1429/MAR.22",
+    "Institution : MAIT (Code: 148) Programme : BTECH(CSE), Batch of: 2024, Code: 027",
+    "Institution : DTU (Delhi Technological University) Department of Computer Science & Engineering",
+    "Institution : NSUT (Netaji Subhas University of Technology) BTECH Information Technology",
+    "Indian Institute of Technology Delhi (IITD) Hauz Khas New Delhi Semester Examination",
+    "Papers Appearing in : 027103(BS103) 027105(BS105) 027107(ES107) 027111(BS111) 027151(BS151)",
+    "Course Structure: CS101 Introduction to Computing, MA102 Linear Algebra, PH103 Electromagnetism",
+    "Entry Start : 45 Minutes before the commencement of the exam. Gate Closing Time : 15 Minutes.",
+    "Controller of Examination, Dean Academic Affairs, Principal & Director of Institution",
+    "Instructions to Candidates: Bags, mobile phones, and programmable calculators are strictly prohibited.",
+    "Hall Ticket Valid for Mid-Term Assessment 2024-2025. Verify all course codes carefully.",
+    "Office of the Controller of Examinations: Gazette Result Notification No. COE/RES/2024/091",
+
+    # Board Marksheet Subjects, Marks, Labels & Officers (Must NEVER be tagged as NAME)
+    "अंक पत्रक MARK SHEET SECONDARY SCHOOL EXAMINATION 2024 (ANNUAL)",
+    "SUBJECT MARKS OBTAINED THEORY INTERNAL ASSESSMENT TOTAL MARKS IN WORDS",
+    "MIL-HINDI 100 30 091 091 NINETY ONE",
+    "SIL-SANSKRIT 100 30 084 084 EIGHTY FOUR",
+    "MATHEMATICS 100 30 087 087 EIGHTY SEVEN",
+    "SCIENCE 100 30 063 019 082 EIGHTY TWO",
+    "SOCIAL SCIENCE 100 30 064 009 082 EIGHTY TWO",
+    "ENGLISH 100 30 053 053 FIFTY THREE",
+    "PHYSICS CHEMISTRY BIOLOGY HISTORY GEOGRAPHY ECONOMICS CIVICS COMPUTER SCIENCE",
+    "AGGREGATE 426 RESULT 1ST DIV. PASS MARKS 150 TOTAL 500 RESULT: PASS",
+    "रोल कोड Roll Code 51059 रोल नं० Roll No. 2400001 51059-00001-23",
+    "बी.एस.ई.बी.यूनिक आई.डी. BSEB Unique ID 1232230590001 विद्यालय School",
+    "Patna, Dated : 31/03/2024 परीक्षा नियंत्रक Controller of Examination",
+    "Signature & Seal of Centre Superintendent Controller of Examination BSEB Patna",
+
+    # Bank Passbook, Branch & Kiosk Non-PII Templates
+    "UTTAR BIHAR GRAMIN BANK Sponsored by Central Bank of India",
+    "Sunahra Spana Kendra- Sutihara Ram (9586) Link Branch- Surasand",
+    "Customer Service Point (CSP) Kiosk Banking Business Correspondent (BC)",
+    "Signature & Seal of B.C / Branch Manager / Authorized Officer",
+    "Account No:-...1000671030057180 IFSC Code:- CBINOR10001 Aadhar No:- Mobile No:-",
+    "State:-BIHAR PIN:- Branch Code: 9586 CIF No: 8829104",
+    "STATE BANK OF INDIA PUNJAB NATIONAL BANK BANK OF BARODA CANARA BANK HDFC BANK ICICI BANK",
+
+    # Web Dashboard & UI Table Non-PII Templates
+    "Test users Last signed in Joined Actions Status Role",
+    "Use this development instance for internal and test users. When you're ready to invite real users, create your production instance.",
+    "Search users by name or email... Create user Filter Sort Export Download"
 ]
 
 ITEMS = [
@@ -369,8 +462,8 @@ def apply_casing(text, spans, mode):
     return new_text, spans
 
 def generate_sample():
-    # 10% probability of pure non-PII negative text
-    if random.random() < 0.10:
+    # 18% probability of pure non-PII negative text (Dates, Subjects, UI tables, Bank headers, Product specs)
+    if random.random() < 0.18:
         text = random.choice(NON_PII_TEMPLATES)
         casing_mode = random.choices(["lower", "upper", "title"], weights=[0.4, 0.3, 0.3])[0]
         if casing_mode == "lower":
@@ -397,6 +490,7 @@ def generate_sample():
         amount=random.randint(499, 25000),
         item=random.choice(ITEMS),
         num=random.randint(1000, 99999),
+        roll=f"{random.randint(100, 999)}{random.randint(10000000, 99999999)}",
         time=f"{random.randint(1, 8)} PM",
         dob=f"{random.randint(1, 28)}/0{random.randint(1, 9)}/{random.randint(1975, 2005)}",
         age=random.randint(18, 70)

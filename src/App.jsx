@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { detectFaces } from './modules/faceDetector.js';
+import { detectQRCodes } from './modules/qrDetector.js';
 import { runDocumentOCR } from './modules/ocrService.js';
 import { redactTextContent } from './modules/piiDetector.js';
 import { findBoxesToRedact, renderCanvasOverlay } from './modules/redactionCanvas.js';
@@ -85,10 +86,13 @@ const App = () => {
       });
       setImageElement(img);
 
-      // Level 1: Face Detection (YuNet ONNX)
+      // Level 1: Face Detection (YuNet ONNX) & QR Code Detection
       setCurrentLevel(1);
-      setStatusMessage('Level 1/4: Detecting Faces...');
-      const faceRes = await detectFaces(img);
+      setStatusMessage('Level 1/4: Detecting Faces & QR Codes...');
+      const [faceRes, qrBoxes] = await Promise.all([
+        detectFaces(img),
+        detectQRCodes(img)
+      ]);
       const { faces, timeTaken: faceTime } = faceRes;
       setDetectedFaces(faces);
 
@@ -127,8 +131,8 @@ const App = () => {
 
       // Level 4: Visual Redaction & Guided Semantic Masking
       setCurrentLevel(4);
-      setStatusMessage('Level 4/4: Applying Guided Semantic Redactions (<NAME_HIDDEN>, <FACE_HIDDEN>)...');
-      const toRedact = findBoxesToRedact(ocrItems, redactedEntities);
+      setStatusMessage('Level 4/4: Applying Guided Semantic Redactions (<NAME_HIDDEN>, <FACE_HIDDEN>, <QR_HIDDEN>)...');
+      const toRedact = findBoxesToRedact(ocrItems, redactedEntities, qrBoxes);
       setRedactedBoxes(toRedact);
 
       // Render to Canvas

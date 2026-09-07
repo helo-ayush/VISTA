@@ -109,11 +109,33 @@ export const UI_STOPWORDS = new Set([
   'ayushman', 'bharat', 'complaints', 'vitals', 'investigation', 'findings', 'medication',
   'bluedart', 'omnitech', 'razorpay', 'waybill', 'delhivery', 'shipment', 'consignment', 'courier',
   'upi', 'vpa', 'imps', 'neft', 'rtgs', 'cif', 'micr', 'nominee', 'sku', 'hsn',
-  'livechat', 'intercom', 'zendesk', 'slack', 'salesforce', 'gateway'
+  'livechat', 'intercom', 'zendesk', 'slack', 'salesforce', 'gateway',
+  // Academic, University, Examination, and Institutional Document Terms (Never PII)
+  'mait', 'ggsipu', 'ipu', 'dtu', 'nsut', 'iit', 'nit', 'bits', 'iiit', 'du', 'jnu',
+  'btech', 'mtech', 'bca', 'mca', 'bsc', 'msc', 'bba', 'mba', 'phd', 'cse', 'ece', 'it', 'mech',
+  'coe', 'exam', 'examination', 'admit', 'card', 'roll', 'institution', 'programme',
+  'batch', 'code', 'papers', 'appearing', 'commencement', 'entry', 'start', 'gate', 'closing',
+  'dean', 'director', 'principal', 'controller', 'signature', 'candidate', 'minutes',
+  // Government, Transport, Driving License, and Identity Card System Terms
+  'transport', 'department', 'government', 'nct', 'licence', 'license', 'union',
+  'validity', 'blood', 'group', 'donor', 'organ', 'issue', 'issued',
+  // Calendar Months, Abbreviations, and Days (Never PII person names)
+  'jan', 'january', 'feb', 'february', 'mar', 'march', 'apr', 'april', 'may',
+  'jun', 'june', 'jul', 'july', 'aug', 'august', 'sep', 'sept', 'september',
+  'oct', 'october', 'nov', 'november', 'dec', 'december',
+  'mon', 'monday', 'tue', 'tuesday', 'wed', 'wednesday', 'thu', 'thursday',
+  'fri', 'friday', 'sat', 'saturday', 'sun', 'sunday',
+  // School and Examination Subjects (Never PII person names)
+  'hindi', 'sanskrit', 'mathematics', 'maths', 'science', 'social', 'english',
+  'physics', 'chemistry', 'biology', 'mil', 'sil', 'aggregate', 'division',
+  'theory', 'practical', 'assessment', 'marks', 'obtained', 'first', 'pass', 'fail',
+  // Bank Passbook and Institutional Stopwords
+  'kendra', 'branch', 'link', 'kiosk', 'gramin', 'sponsoring', 'sponsored',
+  'holder', 'account', 'passbook', 'statement', 'signature', 'seal'
 ]);
 
 // Company, Organization, Corporate & Brand detection filter (never PII)
-export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore|BlueDart|OmniTech|Razorpay|Waybill|Delhivery|FedEx|DHL|DTDC|Shadowfax|Xpressbees|Shiprocket|Ekart|LiveChat|Intercom|Zendesk|Slack|Salesforce)\b/i;
+export const COMPANY_INDICATORS = /\b(?:Inc|Corp|Corporation|Ltd|Limited|LLC|LLP|Pvt|Private|GmbH|AG|SA|BV|NV|Bank|Banque|Labs|Laboratories|Technologies|Technology|Tech|Enterprises|Solutions|Services|Ventures|Holdings|Group|Co|Company|International|Global|Center|Hospital|Clinic|Pharma|Biopharma|University|College|Institute|Campus|School|Academy|Board|Faculty|Store|Seller|Shop|Retail|Studio|Agency|Brand|Jeans|Denim|Clothing|Fashion|Apparel|Wear|Outfitters|Garments|Pepe|Zara|Nike|Adidas|Puma|Levis?|Flipkart|Fliptart|Flipt|Amazon|Myntra|Meesho|Snapdeal|JioMart|Swiggy|Zomato|Uber|Ola|Paytm|PhonePe|Google|Gmail|YouTube|WhatsApp|Nvidia|GeForce|GitHub|Git|VISTA|Chrome|Android|iOS|Apple|Microsoft|Windows|Clerk|Gemini|Send Anywhere|Netflix|CultX|Search|Explore|BlueDart|OmniTech|Razorpay|Waybill|Delhivery|FedEx|DHL|DTDC|Shadowfax|Xpressbees|Shiprocket|Ekart|LiveChat|Intercom|Zendesk|Slack|Salesforce|MAIT|GGSIPU|DTU|NSUT|IIT|NIT|IIIT|BITS|IGNOU|CBSE|UGC|AICTE)\b/i;
 
 // Number words & monetary currency vocabulary to reject amount-in-words false positives
 export const NUMBER_WORDS = new Set([
@@ -161,6 +183,9 @@ export const REGEX_RULES = [
   { pattern: /\b(?:Ticket(?:\s*(?:ID|Id|No\.?|Number|#|Ref\.?))?|Customer\s*(?:ID|Id|No\.?|Number|#)|CIF(?:\s*(?:ID|Id|No\.?|Number|#))?|Client\s*(?:ID|Id|No\.?|Number|#)|Record\s*ID|Employee\s*(?:ID|Code|No\.?)|Badge\s*ID|Staff\s*ID|Candidate\s*ID|Member\s*ID)\s*[:#]\s*#?([A-Za-z0-9_-]{3,32})\b/gi, tag: 'ID' },
   { pattern: /\b(?:EMP|BADGE|REC|CAND|CIF|TKT|INC|TICKET)[-_]\d{4,}[-_]?[A-Za-z0-9]*\b/gi, tag: 'ID' },
 
+  // 4c. Academic, Student, University & Examination IDs (Roll No: 12914802724, Enrollment No: 02714802724, Roll Code: 51059)
+  { pattern: /\b(?:Roll\s*(?:No\.?|Number|Code|#)?|Enrollment\s*(?:No\.?|Number|#)?|Registration\s*(?:No\.?|Number|#)?|Reg\s*(?:No\.?|Number|#)|Student\s*(?:ID|Id|No\.?|Number|#)|Candidate\s*(?:ID|Id|Code|No\.?|Number|#)|Hall\s*Ticket\s*(?:No\.?|Number|#)?|PRN(?:\s*(?:No\.?|Number|#))?)\s*[:#-]?[\s.…_-]*#?((?=[A-Za-z0-9]*\d)[A-Za-z0-9]{3,24})\b/gi, tag: 'ID' },
+
   // 5. URLs & Personal Websites
   { pattern: /\b(?:https?:\/\/|www\.)[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:\/[a-zA-Z0-9()@:%_+.~#?&//=]*)?/gi, tag: 'URL' },
 
@@ -187,8 +212,10 @@ export const REGEX_RULES = [
   // 10. IBAN (Requires real ISO country code)
   { pattern: new RegExp(String.raw`\b(?:${IBAN_COUNTRIES})\d{2}(?:[\s-]?\d{4}){3,7}\b`, 'gi'), tag: 'IBAN' },
 
-  // 11. Indian Aadhaar Card (12 digits) & Masked - Strict boundaries: must not be part of a 16-digit card or longer number
+  // 11. Indian Aadhaar Card (12 digits, spaced, continuous, or with leader dots)
+  { pattern: /\b(?:Aadhaar|Aadhar|UIDAI|UID)(?:\s*(?:No\.?|Number|#))?[:#-]?[\s.…_-]*([2-9]\d{3}[\s.-]?\d{4}[\s.-]?\d{4})\b/gi, tag: 'AADHAAR' },
   { pattern: /(?<!\d[-\s]?)\b[2-9]\d{3}[ -]\d{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
+  { pattern: /(?<!\d)\b[2-9]\d{3}\d{4}\d{4}\b(?!\d)/g, tag: 'AADHAAR' },
   { pattern: /(?<![X\d][-\s]?)\b[X]{4}[ -][X]{4}[ -]\d{4}\b(?![ -]?\d)/g, tag: 'AADHAAR' },
 
   // 12. Indian PAN Card
@@ -206,8 +233,9 @@ export const REGEX_RULES = [
   // 15. Indian Voter ID
   { pattern: /\b[A-Z]{3}\d{7}\b/g, tag: 'VOTER_ID' },
 
-  // 16. Indian Driving License
-  { pattern: /\b[A-Z]{2}[- ]?\d{2}[- ]?(?:19|20)\d{2}[- ]?\d{7}\b/g, tag: 'DRIVING_LICENSE' },
+  // 16. Indian Driving License (supports DL1 20260048245, DL-0120260048245, DL-14-2026-..., etc.)
+  { pattern: /\b[A-Z]{2}[- ]?\d{1,3}[- ]?(?:19|20)\d{2}[- ]?\d{7}\b/gi, tag: 'DRIVING_LICENSE' },
+  { pattern: /\b(?:DL|Driving\s*Licen[sc]e(?:\s*No\.?)?)\s*[:#-]?\s*([A-Za-z0-9\s/-]{8,24})\b/gi, tag: 'DRIVING_LICENSE' },
 
   // 17. Student & Medical Reference Tokens (Excludes generic corporate tokens)
   { pattern: /\b(?:AUS-STU-[\w-]+|MRN-[\w-]+|TX-MED-[\w-]+)\b/g, tag: 'ID' },
@@ -236,8 +264,8 @@ export const REGEX_RULES = [
 
   // 20. Phone Numbers: Indian Mobile (all formats: +91 98765 43210, 98765 43210, 9876543210, (+91 98765 43210), 0-prefixed)
   { pattern: /(?:\(\+91[\s.\u2010-\u2015-]?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\)|\+91[\s.\u2010-\u2015-]?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b(?:\+91[\s.\u2010-\u2015-]?)?[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b(?:\+91[\s.\u2010-\u2015-]?)?[6-9]\d{2}[\s.\u2010-\u2015-]?\d{3}[\s.\u2010-\u2015-]?\d{4}\b|\b0[6-9]\d{4}[\s.\u2010-\u2015-]?\d{5}\b|\b0[6-9]\d{9}\b|\b[6-9]\d{9}\b)/g, tag: 'PHONE' },
-  // 21. Phone Numbers: Indian Landlines
-  { pattern: /\b0(?:11|22|33|44|80)[-\s.\u2010-\u2015]?\d{4}[-\s.\u2010-\u2015]?\d{4}\b|\b0\d{2,4}[-\s.\u2010-\u2015]?\d{6,8}\b/g, tag: 'PHONE' },
+  // 21. Phone Numbers: Indian Landlines (strict STD codes, rejects course codes like 027103(BS103))
+  { pattern: /(?<![/(A-Za-z0-9])\b0(?:11|20|22|33|40|44|79|80)[-\s]?\d{4}[-\s]?\d{4}\b(?![/)A-Za-z0-9])|(?<![/(A-Za-z0-9])\b0(?:120|124|129|141|161|172|175|181|261|265|471|484|512|522|755)[-\s]?\d{6,7}\b(?![/)A-Za-z0-9])/g, tag: 'PHONE' },
   // 22. Phone Numbers: US, North American & International (supports +1-555-019–2834 with en-dash/em-dash, 555-014-9981, (555) 014-9981)
   { pattern: /(?:\+?1[\s.\u2010-\u2015-]?)?(?:\(\d{3}\)|\b\d{3})[\s.\u2010-\u2015-]\d{3}[\s.\u2010-\u2015-]\d{4}\b/g, tag: 'PHONE' },
   { pattern: /\+\d{1,3}[\s.\u2010-\u2015-]\d{1,4}(?:[\s.\u2010-\u2015-]\d{2,4}){2,4}\b|\+\d{1,3}[\s.\u2010-\u2015-]\(?\d{2,4}\)?[\s.\u2010-\u2015-]?\d{3,4}[\s.\u2010-\u2015-]?\d{3,4}\b/g, tag: 'PHONE' },
@@ -248,17 +276,17 @@ export const REGEX_RULES = [
   // 24. PGP Fingerprints
   { pattern: /(?:\b[0-9A-F]{4}\s*){8,10}\b/g, tag: 'KEY' },
 
-  // 25. IP Addresses (IPv4)
-  { pattern: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g, tag: 'IP_ADDRESS' },
+  // 25. IP Addresses (IPv4) - Bounded octets, does not fire on Aadhaar/Phone/Account numbers
+  { pattern: /(?<!(?:Aadhaar|Aadhar|UID|Account|A\/c|Mobile|Phone|DL|Voter)[^.\n]{0,30})(?<!\d)\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|[0-9])(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|[0-9])){3}\b(?!\d)/gi, tag: 'IP_ADDRESS' },
 
   // 26. MAC Addresses
   { pattern: /\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, tag: 'MAC_ADDRESS' },
 
-  // 27. Bank Account Numbers (requires account context indicator to avoid matching order IDs/barcodes)
-  { pattern: /\b(?:Account\s*(?:Number|No\.?|#)?|A\/c\s*(?:No\.?|#)?|Bank\s*A\/c|Acc\s*No\.?)\s*[:-]?\s*([0-9]{9,18})\b/gi, tag: 'ACCOUNT_NUMBER' },
+  // 27. Bank Account Numbers (handles standard, spaced, and dotted leader lines)
+  { pattern: /\b(?:Account\s*(?:Number|No\.?|#)?|A\/c\s*(?:No\.?|#)?|Bank\s*A\/c|Acc\s*No\.?)[:#-]?[\s.…_-]*([0-9]{9,18})\b/gi, tag: 'ACCOUNT_NUMBER' },
 
-  // 28. Indian Address Relations, Landmarks & Rural Markers (Strict word boundaries to never match "policy" or sentence starters like "Below is...")
-  { pattern: /\b(?:S\/o|D\/o|W\/o|C\/o|Son of|Daughter of|Wife of|Care of)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
+  // 28. Indian Relations (S/o, D/o, W/o, Son of) -> Person Name
+  { pattern: /\b(?:S\/o|D\/o|W\/o|C\/o|Son of|Daughter of|Wife of|Care of)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'NAME' },
   { pattern: /\b(?:Near|Opposite|Behind|Beside|Next to|Adjacent to)\s*[:-]?\s*(?!is\b|are\b|was\b|were\b|the\b|a\b|an\b|our\b|we\b|this\b|that\b|these\b|those\b|it\b|all\b)[A-Z][a-zA-Z0-9.,\s-]{2,40}\b/g, tag: 'ADDRESS' },
   { pattern: /\b(?:Vill(?:age)?\b|P\.O\.\b|Post\s*Office\b|Dist(?:rict)?\b|Taluk[a]?\b|Teh(?:sil)?\b|Mandal\b)\s*[:-]?\s*[A-Za-z][a-zA-Z.\s]{2,40}\b/gi, tag: 'ADDRESS' },
 
@@ -267,10 +295,10 @@ export const REGEX_RULES = [
 ];
 
 // --- 2. CONTEXTUAL ADDRESS & BIRTHPLACE HEADERS ---
-const ADDRESS_HEADER_REGEX = /(?:Current Residential Address|Primary Residential Address|Permanent Residential Address|Residential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address|Home Address|Local Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
-const BIRTH_HEADER_REGEX = /(?:Place of Birth):\s*([^\n*#]+)/gi;
-const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
-const FULL_NAME_HEADER_REGEX = /(?:Patient Legal Name|Patient Name|Full Legal Name|Legal Name|Cardholder Name|Full Name|Applicant Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Attending Senior Consultant|Attending Physician|Doctor Name|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife)\s*:\s*([A-Za-z.'’\-]+(?:[ \t]+[A-Za-z.'’\-]+)+(?:,\s*(?:Jr\.?|Sr\.?|II|III|IV|MD|PhD|Esq\.?|RN|MBBS|MS|FACS))?)/gi;
+const ADDRESS_HEADER_REGEX = /(?:\bAddress|\bCurrent Residential Address|\bPrimary Residential Address|\bPermanent Residential Address|\bResidential Address|Assigned Workspace|Temporary Lodging|Prior Residential Address|Billing Address|Shipping Address|Mailing Address|Registered Office|Site Location|Delivery Address|Correspondence Address|Permanent Address|Home Address|Local Address)(?:\s*\([^)]*\))?:\s*\n?([^\n*#]+)/gi;
+const BIRTH_HEADER_REGEX = /(?:Place of Birth|Date of Birth|DOB):\s*([^\n*#]+)/gi;
+const CAPS_NAME_HEADER_REGEX = /(?:Cardholder Name|Full Name|Name|Applicant Name|Patient Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Son[\s/]*Daughter[\s/]*Wife\s*of|Son of|Daughter of|Wife of|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife):\s*([A-Z]{2,}(?:[ \t]+[A-Z]{2,})+)/gi;
+const FULL_NAME_HEADER_REGEX = /(?:Patient Legal Name|Patient Name|Full Legal Name|Legal Name|Cardholder Name|Full Name|Applicant Name|Student Name|Authorized Signatory|Father's Name|Spouse Name|Son[\s/]*Daughter[\s/]*Wife\s*of|Son of|Daughter of|Wife of|Attending Senior Consultant|Attending Physician|Doctor Name|Primary Account Holder|Joint Account Holder|Account Holder(?:\s*Name)?|Beneficiary Name|Nominee(?:\s*Registered)?|Nominee Name|Reporting Manager|HR Business Partner|HR Partner|HR Manager|Contact Person|Spouse|Husband|Wife)\s*:\s*([A-Za-z.'’\-]+(?:[ \t]+[A-Za-z.'’\-]+)+(?:,\s*(?:Jr\.?|Sr\.?|II|III|IV|MD|PhD|Esq\.?|RN|MBBS|MS|FACS))?)/gi;
 const CONVERSATIONAL_NAME_REGEX = /(?:\b[mM]y name is|\b[rR]egistered (?:simply )?as|\b[iI]nvestigating [oO]fficer:\s*|\b[cC]omplainant:\s*)\s*([A-Z][a-zA-Z'’]+(?:[- ][A-Z][a-zA-Z'’]+){1,3})/g;
 
 // --- 3. UPGRADED COMPREHENSIVE ADDRESS VOCABULARIES ---
@@ -508,10 +536,13 @@ function extractNERSpans(rawResults, line) {
       continue;
     }
 
-    // Reject dates (e.g. "05-Sep-2026", "Sep-2026", "March 2026", "2026-09-05") misclassified as ADDRESS or NAME
+    // Reject dates and month names (e.g. "Jan", "Jan 29, 2026", "29 Jan 2026", "05-Sep-2026", "Sep-2026", "March 2026", "2026-09-05") misclassified as ADDRESS or NAME
     const MONTH_NAMES = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
-    const DATE_PATTERN = new RegExp(String.raw`^(?:\d{1,2}[-\/\s])?(?:${MONTH_NAMES})[-\/\s,]*\d{2,4}$|^\d{4}[-\/\s](?:${MONTH_NAMES}|\d{1,2})[-\/\s]\d{1,2}$`, 'i');
-    if (DATE_PATTERN.test(cleanLower)) {
+    const IS_STANDALONE_MONTH = new RegExp(String.raw`^(?:${MONTH_NAMES})$`, 'i');
+    const DATE_PATTERN = new RegExp(String.raw`^(?:\d{1,2}[-\/\s,]+)?(?:${MONTH_NAMES})[-\/\s,]*(?:\d{1,2}[-\/\s,]+)?\d{2,4}$|^\d{4}[-\/\s](?:${MONTH_NAMES}|\d{1,2})[-\/\s]\d{1,2}$`, 'i');
+    const hasAdjacentDateNumber = new RegExp(String.raw`(?:\b(?:${MONTH_NAMES})\b[\s,.-]*\d{1,4}|\d{1,4}[\s,.-]*\b(?:${MONTH_NAMES})\b)`, 'i').test(line);
+
+    if (IS_STANDALONE_MONTH.test(cleanLower) || DATE_PATTERN.test(cleanLower) || (IS_STANDALONE_MONTH.test(cleanLower) && hasAdjacentDateNumber)) {
       searchIdx = endIdx;
       continue;
     }
@@ -541,8 +572,11 @@ function extractNERSpans(rawResults, line) {
       }
     }
 
-    // Reject document labels like "Aadhaar Card UID, PAN" from being classified as ADDRESS or NAME
-    if (/\b(?:Aadhaar|UIDAI|UID|PAN\s*Card|Voter\s*ID|Passport|Driving\s*License)\b/i.test(extractedText)) {
+    // Reject document labels and bank branch/kiosk headers from being classified as ADDRESS or NAME
+    if (
+      /\b(?:Aadhaar|Aadhar|UIDAI|UID|PAN\s*Card|Voter\s*ID|Passport|Driving\s*License|Kendra|Branch|Link\s*Branch|Kiosk|CSP|Gramin\s*Bank)\b/i.test(extractedText) ||
+      /\b(?:Kendra|Branch|Link\s*Branch)\b/i.test(line)
+    ) {
       searchIdx = endIdx;
       continue;
     }

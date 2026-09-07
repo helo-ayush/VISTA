@@ -1,5 +1,42 @@
 import { REGEX_RULES, UI_STOPWORDS, COMPANY_INDICATORS } from './piiDetector.js';
 
+// Common English words that must NEVER be treated as individual person names
+const COMMON_DICTIONARY_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'all', 'any', 'not', 'are', 'were',
+  'was', 'have', 'has', 'had', 'been', 'will', 'shall', 'would', 'could', 'should', 'can',
+  'into', 'onto', 'upon', 'about', 'above', 'below', 'between', 'under', 'over', 'after',
+  'before', 'first', 'second', 'third', 'basis', 'seats', 'course', 'courses', 'institution',
+  'colleges', 'college', 'school', 'university', 'board', 'year', 'date', 'time', 'same',
+  'dcece', 'bcece', 'allotted', 'category', 'merit', 'rank', 'serial', 'online', 'form',
+  'application', 'hereby', 'declare', 'declaration', 'chosen', 'diploma', 'engineering',
+  'mechanical', 'electrical', 'civil', 'computer', 'science', 'technology', 'free', 'will',
+  'choice', 'liking', 'consideration', 'furnished', 'submitted', 'documents', 'correct',
+  'authentic', 'found', 'false', 'forged', 'proved', 'adopted', 'unfair', 'means', 'stage',
+  'publication', 'results', 'admission', 'liable', 'cancellation', 'expulsion', 'legal',
+  'action', 'event', 'admitted', 'abide', 'rules', 'concerned', 'vacating', 'left', 'thumb',
+  'impression', 'signature', 'candidate', 'english', 'hindi', 'recommended', 'allotment',
+  'seat', 'verified', 'verifies', 'fulfills', 'eligibility', 'criteria', 'fixed', 'respective',
+  'competent', 'apex', 'body', 'authority',
+  // Months and Days of Week (Never person names)
+  'jan', 'january', 'feb', 'february', 'mar', 'march', 'apr', 'april', 'may',
+  'jun', 'june', 'jul', 'july', 'aug', 'august', 'sep', 'sept', 'september',
+  'oct', 'october', 'nov', 'november', 'dec', 'december',
+  'mon', 'monday', 'tue', 'tuesday', 'wed', 'wednesday', 'thu', 'thursday',
+  'fri', 'friday', 'sat', 'saturday', 'sun', 'sunday',
+  // School & Mark Sheet Terms (Never person names)
+  'code', 'roll', 'subject', 'marks', 'obtained', 'first', 'div', 'division',
+  'sil', 'mil', 'sanskrit', 'hindi', 'mathematics', 'maths', 'science', 'social',
+  'english', 'aggregate', 'result', 'pass', 'controller', 'examination',
+  'bseb', 'cbse', 'unique', 'centre', 'center'
+]);
+
+// Printed form field labels that must NEVER be masked by an entity self-match
+const FORM_LABEL_WORDS = new Set([
+  'name', 'roll', 'code', 'mother', 'mothers', "mother's", 'father', 'fathers', "father's",
+  'school', 'subject', 'marks', 'controller', 'examination', 'date', 'year', 'state', 'pin',
+  'village', 'post', 'district', 'police', 'station', 'account', 'ifsc', 'aadhar', 'aadhaar', 'mobile'
+]);
+
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -15,9 +52,27 @@ function getCharWeight(ch) {
   return 0.95;
 }
 
+function snapToWordBoundaries(str, startIdx, endIdx) {
+  let s = Math.max(0, startIdx);
+  let e = Math.min(str.length, endIdx);
+  // Snap s left if mid-word
+  while (s > 0 && /\w/.test(str[s]) && /\w/.test(str[s - 1])) {
+    s--;
+  }
+  // Snap e right if mid-word
+  while (e < str.length && /\w/.test(str[e - 1]) && /\w/.test(str[e])) {
+    e++;
+  }
+  return { s, e };
+}
+
 function computeSubBox(box, fullText, startIdx, endIdx) {
   const b = box || { x: 0, y: 0, width: 100, height: 20 };
   const str = fullText || '';
+  
+  // Snap to full word boundaries to prevent slicing words in half (e.g. "Start" -> "art")
+  const { s: cleanStart, e: cleanEnd } = snapToWordBoundaries(str, startIdx, endIdx);
+
   let totalW = 0;
   const prefixWeights = [0];
   for (let i = 0; i < str.length; i++) {
@@ -26,17 +81,17 @@ function computeSubBox(box, fullText, startIdx, endIdx) {
   }
   totalW = Math.max(0.1, totalW);
 
-  const startRatio = prefixWeights[Math.min(startIdx, str.length)] / totalW;
-  const endRatio = prefixWeights[Math.min(endIdx, str.length)] / totalW;
+  const startRatio = prefixWeights[Math.min(cleanStart, str.length)] / totalW;
+  const endRatio = prefixWeights[Math.min(cleanEnd, str.length)] / totalW;
 
   const boxW = b.width || 100;
   const rawX = (b.x || 0) + boxW * startRatio;
   const rawEnd = (b.x || 0) + boxW * endRatio;
 
-  // Modest pixel padding (8px) so characters (like trailing digits "90" or leading "HDFC") are never clipped
-  const padPx = 8;
-  const subX = Math.max(b.x || 0, Math.round(rawX - (startIdx > 0 ? padPx : 0)));
-  const subEnd = Math.min((b.x || 0) + boxW, Math.round(rawEnd + (endIdx < str.length ? padPx : 0)));
+  // Modest pixel padding (6px) so characters are never clipped
+  const padPx = 6;
+  const subX = Math.max(b.x || 0, Math.round(rawX - (cleanStart > 0 ? padPx : 0)));
+  const subEnd = Math.min((b.x || 0) + boxW, Math.round(rawEnd + (cleanEnd < str.length ? padPx : 0)));
   const subW = Math.max(16, subEnd - subX);
 
   return {
@@ -54,28 +109,39 @@ function computeSubBox(box, fullText, startIdx, endIdx) {
  *
  * @param {Array} ocrBoxes - Detected OCR boxes with { text, box, confidence }
  * @param {Array} redactedEntities - Extracted PII entities with { originalValue, tag }
+ * @param {Array} qrBoxes - Detected QR code bounding boxes
  * @returns {Array} List of boxes to redact with assigned tags
  */
-export function findBoxesToRedact(ocrBoxes, redactedEntities) {
+export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
   const boxesToRedact = [];
 
   for (const item of ocrBoxes) {
     const itemText = (item.text || '').trim();
     if (!itemText) continue;
 
-    // Reject standalone UI stopwords or 1-2 character OCR noise
     const cleanLower = itemText.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
-    if (cleanLower.length <= 2 && !/^\d{2}$/.test(cleanLower)) {
-      continue; // Skip single letters, punctuation, icon noise like "v", "[PI", "o"
-    }
 
-    if (UI_STOPWORDS.has(cleanLower) || UI_STOPWORDS.has(itemText.toLowerCase())) {
-      continue; // Skip generic buttons/navigation: "Home", "Download Invoice", "Cart", etc.
-    }
+    // High-precision check: Does this line contain direct PII (Email @, phone, card, account, aadhaar)?
+    const containsEmail = /@/.test(itemText);
+    const hasDirectPII = containsEmail || REGEX_RULES.some(rule => {
+      if (rule.tag === 'ADDRESS') return false;
+      const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
+      return pat.test(itemText);
+    });
 
-    // Skip company, corporate, or organization names (e.g. Seller: CultX, Flipkart, Inc, Ltd, etc.)
-    if (COMPANY_INDICATORS.test(itemText) || COMPANY_INDICATORS.test(cleanLower)) {
-      continue;
+    if (!hasDirectPII) {
+      if (cleanLower.length <= 2 && !/^\d{2}$/.test(cleanLower)) {
+        continue; // Skip single letters, punctuation, icon noise like "v", "[PI", "o"
+      }
+
+      if (UI_STOPWORDS.has(cleanLower) || UI_STOPWORDS.has(itemText.toLowerCase())) {
+        continue; // Skip generic buttons/navigation: "Home", "Download Invoice", "Cart", etc.
+      }
+
+      // Skip company, corporate, or organization names (e.g. Seller: CultX, Flipkart, Inc, Ltd, etc.)
+      if (COMPANY_INDICATORS.test(itemText) || COMPANY_INDICATORS.test(cleanLower)) {
+        continue;
+      }
     }
 
     // Reject standalone code identifiers, repo slugs, file paths, or URLs (e.g. "helo-ayush/VISTA_PII")
@@ -95,21 +161,10 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
     // Skip UI category lists or multi-word navigation where >= 50% of words are UI stopwords
     // UNLESS the line contains a high-precision sensitive PII match (e.g. ORDER_ID, PHONE, CARD, EMAIL, etc.)
     const words = cleanLower.split(/[\s,&/+-]+/).filter(w => w.length >= 2);
-    if (words.length > 0) {
+    if (words.length > 0 && !hasDirectPII) {
       const stopwordCount = words.filter(w => UI_STOPWORDS.has(w) || COMPANY_INDICATORS.test(w)).length;
       if (stopwordCount / words.length >= 0.50) {
-        const hasDirectPII = redactedEntities.some(ent => {
-          const val = (ent.originalValue || '').trim().toLowerCase();
-          return val.length >= 3 && itemLower.includes(val);
-        }) || REGEX_RULES.some(rule => {
-          if (rule.tag === 'ADDRESS') return false;
-          const pat = new RegExp(rule.pattern.source, rule.pattern.flags);
-          return pat.test(itemText);
-        });
-
-        if (!hasDirectPII) {
-          continue;
-        }
+        continue;
       }
     }
 
@@ -123,6 +178,14 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
       const valLower = val.toLowerCase();
       const cleanVal = val.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
       const cleanItem = itemText.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
+
+      // Form label words can never be redacted by entity matches
+      if (FORM_LABEL_WORDS.has(valLower) || FORM_LABEL_WORDS.has(cleanVal)) {
+        continue;
+      }
+      if (FORM_LABEL_WORDS.has(cleanItem)) {
+        continue;
+      }
 
       // Case A: The OCR line contains the sensitive PII (either full entity or substring)
       let searchStart = 0;
@@ -138,9 +201,15 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
         searchStart = idx + val.length;
       }
 
-      // Case B: For person names, match individual name tokens (length >= 3)
+      // Case B: For person names, match individual name tokens (length >= 3, never common dictionary words)
       if (ent.tag === 'NAME' && val.split(/\s+/).length > 1) {
-        const nameParts = val.split(/\s+/).filter(p => p.length >= 3 && !UI_STOPWORDS.has(p.toLowerCase()) && !COMPANY_INDICATORS.test(p));
+        const nameParts = val.split(/\s+/).filter(p => 
+          p.length >= 3 && 
+          !UI_STOPWORDS.has(p.toLowerCase()) && 
+          !COMPANY_INDICATORS.test(p) &&
+          !COMMON_DICTIONARY_WORDS.has(p.toLowerCase()) &&
+          !FORM_LABEL_WORDS.has(p.toLowerCase())
+        );
         for (const part of nameParts) {
           const partLower = part.toLowerCase();
           let pStart = 0;
@@ -162,9 +231,9 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
         }
       }
 
-      // Case C: The PII entity contains this OCR box (e.g. truncated address "Home Plot-42...")
-      if (cleanItem.length >= 4 && !UI_STOPWORDS.has(cleanLower)) {
-        if (cleanVal.includes(cleanItem)) {
+      // Case C: The PII entity contains this OCR box (requires >= 70% match or address segment)
+      if (cleanItem.length >= 4 && !UI_STOPWORDS.has(cleanLower) && !FORM_LABEL_WORDS.has(cleanItem)) {
+        if (cleanVal.includes(cleanItem) && (cleanItem.length / cleanVal.length >= 0.70 || ent.tag === 'ADDRESS')) {
           matchedSubSpans.push({
             start: 0,
             end: itemText.length,
@@ -274,6 +343,287 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities) {
         }
       }
     }
+  }
+
+  // --- 4. 2D Spatial Key-Value Grounding for ID & Form Labels ---
+  const KEY_VALUE_LABELS = [
+    { pattern: /\bRoll\s*(?:No\.?|Number)/i, tag: 'ID' },
+    { pattern: /\bEnrollment\s*(?:No\.?|Number)/i, tag: 'ID' },
+    { pattern: /\bRegistration\s*(?:No\.?|Number)/i, tag: 'ID' },
+    { pattern: /\bStudent\s*(?:ID|No\.?)/i, tag: 'ID' },
+    { pattern: /\bCandidate\s*(?:ID|Code|No\.?)/i, tag: 'ID' }
+  ];
+
+  for (const item of ocrBoxes) {
+    const itemText = (item.text || '').trim();
+    for (const rule of KEY_VALUE_LABELS) {
+      if (rule.pattern.test(itemText)) {
+        // Look for an adjacent OCR box to the right within 350px and same vertical band
+        const itemBox = item.box || item;
+        const adjacent = ocrBoxes.find(b => {
+          if (b === item) return false;
+          const bBox = b.box || b;
+          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 350;
+          const isSameBand = Math.abs(bBox.y - itemBox.y) < Math.max(itemBox.height, 25);
+          return isRight && isSameBand && /[A-Za-z0-9]{4,}/.test(b.text || '');
+        });
+
+        if (adjacent) {
+          const adjBox = adjacent.box || adjacent;
+          const alreadyRedacted = boxesToRedact.some(b => 
+            Math.abs(b.x - adjBox.x) < 10 && Math.abs(b.y - adjBox.y) < 10
+          );
+          if (!alreadyRedacted) {
+            boxesToRedact.push({
+              ...adjBox,
+              text: adjacent.text,
+              tag: rule.tag,
+              confidence: adjacent.confidence
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // --- 4a. 2D Spatial Form-Field Grounding for Hand-Filled Passbooks & Forms ---
+  const PASSBOOK_FIELDS = [
+    { pattern: /\b(?:Name\s+Of\s+Account\s+Holder|Account\s+Holder(?:\s*Name)?|Customer\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240 },
+    { pattern: /\b(?:Father'?s?\/Husband'?s?\s+Name|Father'?s?\s+Name|Husband'?s?\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240 },
+    { pattern: /\bVillage\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
+    { pattern: /\bPost\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
+    { pattern: /\bPolice\s*Station\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
+    { pattern: /\bDistrict\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
+    { pattern: /\b(?:Account\s*No|A\/c\s*No)\s*[:#-]?/i, tag: 'ACCOUNT_NUMBER', defaultW: 260 },
+    { pattern: /\b(?:Aadhar|Aadhaar)\s*No\s*[:#-]?/i, tag: 'AADHAAR', defaultW: 240 }
+  ];
+
+  for (const item of ocrBoxes) {
+    const itemText = (item.text || '').trim();
+    for (const field of PASSBOOK_FIELDS) {
+      if (field.pattern.test(itemText)) {
+        const itemBox = item.box || item;
+        // Check if there is an OCR box directly to the right in the same horizontal band
+        const adjacent = ocrBoxes.find(b => {
+          if (b === item) return false;
+          const bBox = b.box || b;
+          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 380;
+          const isSameBand = Math.abs(bBox.y - itemBox.y) < Math.max(itemBox.height, 25);
+          return isRight && isSameBand && (b.text || '').length >= 2;
+        });
+
+        if (adjacent) {
+          const adjBox = adjacent.box || adjacent;
+          const already = boxesToRedact.some(b => Math.abs(b.x - adjBox.x) < 10 && Math.abs(b.y - adjBox.y) < 10);
+          if (!already) {
+            boxesToRedact.push({ ...adjBox, text: adjacent.text, tag: field.tag });
+          }
+        } else {
+          // No OCR box detected because handwritten Hindi/Devanagari was unread by Latin OCR.
+          // Ground the fill-in zone directly to the right!
+          const fillX = Math.round(itemBox.x + itemBox.width + 6);
+          const fillY = Math.max(0, Math.round(itemBox.y - 2));
+          const fillW = field.defaultW;
+          const fillH = Math.round(itemBox.height * 1.35);
+
+          const already = boxesToRedact.some(b => 
+            Math.abs(b.x - fillX) < 30 && Math.abs(b.y - fillY) < 15
+          );
+          if (!already) {
+            boxesToRedact.push({
+              x: fillX,
+              y: fillY,
+              width: fillW,
+              height: fillH,
+              tag: field.tag,
+              text: `<${field.tag}_FIELD>`
+            });
+          }
+        }
+      }
+    }
+  }
+  for (const item of ocrBoxes) {
+    const t = (item.text || '').trim();
+    if (
+      /\b[A-Z]{2}[- ]?\d{1,3}[- ]?(?:19|20)\d{2}[- ]?\d{7}\b/i.test(t) ||
+      /\bDL[- ]?\d{1,3}[- ]?\d{7,11}\b/i.test(t) ||
+      /\b(?:DL|DL1|DL01)\s+\d{10,12}\b/i.test(t)
+    ) {
+      const bBox = item.box || item;
+      const already = boxesToRedact.some(r => Math.abs(r.x - bBox.x) < 10 && Math.abs(r.y - bBox.y) < 10);
+      if (!already) {
+        boxesToRedact.push({ ...bBox, text: t, tag: 'DRIVING_LICENSE' });
+      }
+    }
+  }
+
+  // --- 4c. Multi-Line Address Grounding (e.g. "Address: 23B-CB," and lines directly below) ---
+  const addrLabels = ocrBoxes.filter(b => /\b(?:Address|Residential\s*Address)\s*[:#-]?/i.test(b.text || ''));
+  for (const labelItem of addrLabels) {
+    const lBox = labelItem.box || labelItem;
+    const lText = (labelItem.text || '').trim();
+
+    // 1. Redact address content on the label line itself
+    const match = lText.match(/\b(?:Address|Residential\s*Address)\s*[:#-]?\s*(.*)/i);
+    if (match && match[1] && match[1].trim().length > 0) {
+      const sub = computeSubBox(lBox, lText, lText.indexOf(match[1]), lText.length);
+      boxesToRedact.push({ ...sub, text: match[1], tag: 'ADDRESS' });
+    }
+
+    // 2. Find all subsequent lines located vertically below this address label (downwards within 160px)
+    const addressLines = ocrBoxes.filter(b => {
+      if (b === labelItem) return false;
+      const bBox = b.box || b;
+      const isBelow = bBox.y > lBox.y && bBox.y < lBox.y + 160;
+      const isAligned = bBox.x >= lBox.x - 40 && bBox.x <= lBox.x + lBox.width + 160;
+      const isNotAnotherLabel = !/\b(?:Date\s*of\s*Birth|Blood\s*Group|Organ\s*Donor|Validity|Son[\s/]*|Signature|Issue\s*Date|Holder)\b/i.test(b.text || '');
+      return isBelow && isAligned && isNotAnotherLabel;
+    });
+
+    for (const line of addressLines) {
+      const bBox = line.box || line;
+      const already = boxesToRedact.some(r => Math.abs(r.x - bBox.x) < 10 && Math.abs(r.y - bBox.y) < 10);
+      if (!already) {
+        boxesToRedact.push({ ...bBox, text: line.text, tag: 'ADDRESS' });
+      }
+    }
+  }
+
+  // Catch address lines with Indian PIN codes or Cantonment (e.g. "...,DELHI,110028" or "DELHI CANTONMENT")
+  for (const item of ocrBoxes) {
+    const itemText = (item.text || '').trim();
+    if (/\b(?:CANTONMENT|CANTT)\b/i.test(itemText) || /(?<!\d)\b[1-9]\d{2}\s?\d{3}\b(?!\d)/.test(itemText)) {
+      if (!/\b(?:Issued\s*by|Transport\s*Department|Government\s*of)\b/i.test(itemText)) {
+        const bBox = item.box || item;
+        const already = boxesToRedact.some(r => Math.abs(r.x - bBox.x) < 10 && Math.abs(r.y - bBox.y) < 10);
+        if (!already) {
+          boxesToRedact.push({ ...bBox, text: itemText, tag: 'ADDRESS' });
+        }
+      }
+    }
+  }
+
+  // --- 4d. Relation / Relative Name Grounding (Son/Daughter/Wife of) ---
+  const relationLabels = ocrBoxes.filter(b => /\b(?:Son[\s/]*Daughter[\s/]*Wife\s*of|S\/o|D\/o|W\/o|C\/o)\s*[:#-]?/i.test(b.text || ''));
+  for (const relItem of relationLabels) {
+    const rBox = relItem.box || relItem;
+    const rText = (relItem.text || '').trim();
+    const rMatch = rText.match(/\b(?:Son[\s/]*Daughter[\s/]*Wife\s*of|S\/o|D\/o|W\/o|C\/o)\s*[:#-]?\s*(.*)/i);
+    if (rMatch && rMatch[1] && rMatch[1].trim().length > 1) {
+      const sub = computeSubBox(rBox, rText, rText.indexOf(rMatch[1]), rText.length);
+      boxesToRedact.push({ ...sub, text: rMatch[1], tag: 'NAME' });
+    } else {
+      const adjacent = ocrBoxes.find(b => {
+        if (b === relItem) return false;
+        const bBox = b.box || b;
+        const isRight = bBox.x > rBox.x && bBox.x < rBox.x + rBox.width + 300;
+        const isSameBand = Math.abs(bBox.y - rBox.y) < Math.max(rBox.height, 25);
+        return isRight && isSameBand && /[A-Za-z]{2,}/.test(b.text || '');
+      });
+      if (adjacent) {
+        const adjBox = adjacent.box || adjacent;
+        boxesToRedact.push({ ...adjBox, text: adjacent.text, tag: 'NAME' });
+      }
+    }
+  }
+
+  // --- 4e. Date of Birth Grounding ---
+  const dobLabels = ocrBoxes.filter(b => /\b(?:Date\s*of\s*Birth|DOB)\s*[:#-]?/i.test(b.text || ''));
+  for (const dobItem of dobLabels) {
+    const dBox = dobItem.box || dobItem;
+    const dText = (dobItem.text || '').trim();
+    const dobMatch = dText.match(/\b(?:Date\s*of\s*Birth|DOB)\s*[:#-]?\s*(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i);
+    if (dobMatch && dobMatch[1]) {
+      const sub = computeSubBox(dBox, dText, dText.indexOf(dobMatch[1]), dText.indexOf(dobMatch[1]) + dobMatch[1].length);
+      boxesToRedact.push({ ...sub, text: dobMatch[1], tag: 'DOB' });
+    }
+  }
+
+  // --- 4f. Bilingual Regional / Hindi Name Detection on Indian IDs (Aadhaar, Voter ID, PAN) ---
+  const isAadhaarOrID = ocrBoxes.some(b => 
+    /\b(?:Government\s+of\s+India|UIDAI|Unique\s+Identification|Aadhaar|Income\s*Tax\s*Department|Election\s*Commission)\b/i.test(b.text || '')
+  ) || boxesToRedact.some(b => b.tag === 'AADHAAR' || b.tag === 'PAN' || b.tag === 'VOTER_ID');
+
+  if (isAadhaarOrID) {
+    const nameBoxes = boxesToRedact.filter(b => b.tag === 'NAME');
+    for (const nb of nameBoxes) {
+      // Check if there is space directly above the English name for the Hindi/Regional name
+      const hindiY = Math.max(0, Math.round(nb.y - nb.height * 1.15 - 4));
+      const hindiH = Math.round(nb.height * 1.05);
+      const alreadyMasked = boxesToRedact.some(b => Math.abs(b.x - nb.x) < 20 && Math.abs(b.y - hindiY) < 12);
+      if (!alreadyMasked && hindiY > 15) {
+        boxesToRedact.push({
+          x: nb.x,
+          y: hindiY,
+          width: nb.width,
+          height: hindiH,
+          tag: 'NAME',
+          text: '<Hindi/Regional Name>'
+        });
+      }
+    }
+  }
+
+  // --- 5. 2D Spatial Signature Detection (Candidate & Holder Signature) ---
+  const sigLabel = ocrBoxes.find(b => /\b(?:Signature\s+of\s+(?:the\s+)?Candidate|Holder'?s\s+Signature|Candidate'?s\s+Signature|Sign\s+of\s+Holder)\b/i.test(b.text));
+  if (sigLabel) {
+    const sigBox = sigLabel.box || sigLabel;
+
+    // Guard: Do not redact if there is printed body paragraph text directly above (e.g. declaration paragraph)
+    const textAbove = ocrBoxes.find(b => {
+      if (b === sigLabel) return false;
+      const bBox = b.box || b;
+      const isDirectlyAbove = bBox.y < sigBox.y && bBox.y > sigBox.y - 70;
+      const isHorizontallyOverlapping = Math.max(bBox.x, sigBox.x) < Math.min(bBox.x + bBox.width, sigBox.x + sigBox.width);
+      return isDirectlyAbove && isHorizontallyOverlapping && (b.text || '').length > 20;
+    });
+
+    // Guard: Do not redact if this is a blank form with dotted lines (e.g. "(i) In English .....")
+    const hasDottedLines = ocrBoxes.some(b => 
+      /\b(?:In\s*English|In\s*Hindi)\b/i.test(b.text || '') && /\.{3,}/.test(b.text || '')
+    );
+
+    if (!textAbove && !hasDottedLines) {
+      const sigH = Math.max(55, Math.round(sigBox.height * 2.2));
+      const sigW = Math.max(140, Math.round(sigBox.width * 1.1));
+      boxesToRedact.push({
+        x: Math.max(0, sigBox.x - 10),
+        y: Math.max(0, sigBox.y - sigH - 4),
+        width: sigW,
+        height: sigH,
+        tag: 'SIGNATURE',
+        text: '<Holder/Candidate Signature>'
+      });
+    }
+  }
+
+  // --- 6. 2D Spatial Official Signatures (Dean / Principal / Controller of Examination) ---
+  const officialSigLabels = ocrBoxes.filter(b => /\b(?:Dean|Principal|Director|Controller\s+of\s+Examination)\b/i.test(b.text));
+  for (const off of officialSigLabels) {
+    const offBox = off.box || off;
+    const sigH = Math.max(50, Math.round(offBox.height * 2.2));
+    const sigW = Math.max(130, Math.round(offBox.width * 0.95));
+    boxesToRedact.push({
+      x: Math.max(0, offBox.x),
+      y: Math.max(0, offBox.y - sigH - 5),
+      width: sigW,
+      height: sigH,
+      tag: 'SIGNATURE',
+      text: '<Official Signature>'
+    });
+  }
+
+  // --- 7. QR Codes & 2D Matrix Barcodes ---
+  for (const qr of qrBoxes) {
+    boxesToRedact.push({
+      x: qr.x,
+      y: qr.y,
+      width: qr.width,
+      height: qr.height,
+      tag: 'QR',
+      text: '<QR Code>'
+    });
   }
 
   return boxesToRedact;
@@ -405,12 +755,14 @@ export function renderCanvasOverlay(canvas, img, boxesToRedact = [], allOcrBoxes
   }
 
   // --- MODE 1: GUIDED SEMANTIC PRIVACY MASKING (DEFAULT & RECOMMENDED) ---
-  // A. Blur & Mask Faces with <FACE_HIDDEN>
+  // A. Blur & Mask Faces with <FACE_HIDDEN> (with 25-35% head margin expansion)
   for (const face of faces) {
-    const fx = Math.max(0, face.x);
-    const fy = Math.max(0, face.y);
-    const fw = Math.min(canvas.width - fx, face.width);
-    const fh = Math.min(canvas.height - fy, face.height);
+    const padW = Math.round(face.width * 0.25);
+    const padH = Math.round(face.height * 0.35);
+    const fx = Math.max(0, Math.round(face.x - padW / 2));
+    const fy = Math.max(0, Math.round(face.y - padH * 0.65)); // extra expansion upward for hair/forehead
+    const fw = Math.min(canvas.width - fx, Math.round(face.width + padW));
+    const fh = Math.min(canvas.height - fy, Math.round(face.height + padH));
 
     // Apply privacy pixelation blur
     const pixelSize = Math.max(8, Math.round(fw / 12));
@@ -467,8 +819,9 @@ export function renderCanvasOverlay(canvas, img, boxesToRedact = [], allOcrBoxes
     ctx.fill();
 
     // Guided semantic token: <TAG_HIDDEN> or compact [TAG] if box is narrow
-    const tag = (box.tag || 'PII').toUpperCase();
-    const token = rw >= 110 ? `<${tag}_HIDDEN>` : (rw >= 50 ? `[${tag}]` : `*`);
+    const rawTag = (box.tag || 'PII').toUpperCase();
+    const tag = rawTag === 'DRIVING_LICENSE' ? 'DL' : rawTag;
+    const token = rw >= 85 ? `<${tag}_HIDDEN>` : (rw >= 40 ? `[${tag}]` : `*`);
 
     const maxFontSize = Math.max(10, Math.min(18, Math.round(rh * 0.65)));
     ctx.font = `bold ${maxFontSize}px ui-monospace, SFMono-Regular, monospace`;
