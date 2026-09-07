@@ -26,8 +26,8 @@ export async function getPaddleOCR() {
       detection: {
         maxSideLength: 960, // Efficient balanced resolution: cuts DBNet convolution time by >50% without dropping small text
         minimumAreaThreshold: 20, // Eliminates micro-noise specks and fabric textures while keeping small words/numbers
-        paddingHorizontal: 0.8, // Generous boundary margin so terminal letters (e.g., 's', 'd', 'm') never get cropped
-        paddingVertical: 0.4
+        paddingHorizontal: 0.3, // Tight boundary margin: keeps terminal letters readable without inflating boxes ~0.8x height per side
+        paddingVertical: 0.2
       },
       recognition: {
         minimumConfidence: 0.30, // Eliminates low-confidence hallucinations on buttons/icons while keeping real text (>0.75)

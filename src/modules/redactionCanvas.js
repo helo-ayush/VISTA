@@ -1,4 +1,4 @@
-import { REGEX_RULES, UI_STOPWORDS, COMPANY_INDICATORS } from './piiDetector.js';
+import { REGEX_RULES, UI_STOPWORDS, COMPANY_INDICATORS, hasIndianPINAddressContext } from './piiDetector.js';
 
 // Common English words that must NEVER be treated as individual person names
 const COMMON_DICTIONARY_WORDS = new Set([
@@ -38,6 +38,22 @@ const FORM_LABEL_WORDS = new Set([
 ]);
 
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Characters that join tokens into a larger identifier (email local-part, dotted handle,
+// hyphenated slug, snake_case). A name token or single-word name entity adjacent to one of
+// these belongs to that larger identifier — e.g. "sarah" inside "sarah.j.techie99 @gmail.com"
+// or "jenkins" inside "s.jenkins@" — and must never be redacted as a standalone person name.
+const IDENTIFIER_JOIN_CHARS = /[.@_\-]/;
+
+// Address field-label phrases for the 2D multi-line address grounding (section 4c). Longest
+// phrases first so multi-word variants win the alternation; mirrors the address-label variants
+// used by the text-level PII detector.
+const ADDRESS_LABEL_PHRASES = [
+  'Current Residential Address', 'Primary Residential Address', 'Permanent Residential Address',
+  'Prior Residential Address', 'Residential Address', 'Billing Address', 'Shipping Address',
+  'Mailing Address', 'Delivery Address', 'Correspondence Address', 'Permanent Address',
+  'Home Address', 'Local Address', 'Registered Address', 'Office Address', 'Address'
+];
 
 /**
  * Computes a surgical sub-bounding box for an in-line substring within an OCR text line box.
@@ -192,6 +208,21 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
       while (searchStart < itemLower.length) {
         const idx = itemLower.indexOf(valLower, searchStart);
         if (idx === -1) break;
+
+        // A single-word name entity must not match inside a larger identifier/email
+        // (e.g. NAME "Sarah" inside "sarah.j.techie99 @gmail.com"). Multi-word full-name
+        // matches ("Sarah Jenkins", "Iyer-Subramanian") keep their existing behavior.
+        if (ent.tag === 'NAME' && !/\s/.test(val)) {
+          const prevChar = idx > 0 ? itemLower[idx - 1] : '';
+          const nextChar = idx + val.length < itemLower.length ? itemLower[idx + val.length] : '';
+          const isWordStart = idx === 0 || (!/\w/.test(prevChar) && !IDENTIFIER_JOIN_CHARS.test(prevChar));
+          const isWordEnd = idx + val.length >= itemLower.length || (!/\w/.test(nextChar) && !IDENTIFIER_JOIN_CHARS.test(nextChar));
+          if (!isWordStart || !isWordEnd) {
+            searchStart = idx + val.length;
+            continue;
+          }
+        }
+
         matchedSubSpans.push({
           start: idx,
           end: idx + val.length,
@@ -199,6 +230,23 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
           value: val
         });
         searchStart = idx + val.length;
+      }
+
+      // Multi-line ADDRESS entities (e.g. "742 Evergreen Terrace, Springfield, OR\n97477")
+      // can never match a single OCR line verbatim. Match each newline-separated segment so
+      // real addresses still get a surgical per-line redaction; tiny fragments such as a bare
+      // PIN ("97477") are skipped so unrelated number-only lines are never dragged in.
+      if (ent.tag === 'ADDRESS' && valLower.includes('\n')) {
+        for (const seg of valLower.split(/\s*\n\s*/)) {
+          if (seg.length < 8) continue;
+          let sStart = 0;
+          while (sStart < itemLower.length) {
+            const sIdx = itemLower.indexOf(seg, sStart);
+            if (sIdx === -1) break;
+            matchedSubSpans.push({ start: sIdx, end: sIdx + seg.length, tag: ent.tag, value: seg });
+            sStart = sIdx + seg.length;
+          }
+        }
       }
 
       // Case B: For person names, match individual name tokens (length >= 3, never common dictionary words)
@@ -216,8 +264,9 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
           while (pStart < itemLower.length) {
             const pIdx = itemLower.indexOf(partLower, pStart);
             if (pIdx === -1) break;
-            const isWordStart = pIdx === 0 || !/\w/.test(itemLower[pIdx - 1]);
-            const isWordEnd = (pIdx + part.length >= itemLower.length) || !/\w/.test(itemLower[pIdx + part.length]);
+            // Same IDENTIFIER_JOIN_CHARS guard as Case A - reject tokens inside emails/handles
+            const isWordStart = pIdx === 0 || (!/\w/.test(itemLower[pIdx - 1]) && !IDENTIFIER_JOIN_CHARS.test(itemLower[pIdx - 1]));
+            const isWordEnd = (pIdx + part.length >= itemLower.length) || (!/\w/.test(itemLower[pIdx + part.length]) && !IDENTIFIER_JOIN_CHARS.test(itemLower[pIdx + part.length]));
             if (isWordStart && isWordEnd) {
               matchedSubSpans.push({
                 start: pIdx,
@@ -358,14 +407,20 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
     const itemText = (item.text || '').trim();
     for (const rule of KEY_VALUE_LABELS) {
       if (rule.pattern.test(itemText)) {
-        // Look for an adjacent OCR box to the right within 350px and same vertical band
+        // Look for an adjacent OCR box to the right within 240px and same vertical band.
+        // The adjacent box must actually look like an ID value (letters + digits mix),
+        // never a generic UI label or company name.
         const itemBox = item.box || item;
         const adjacent = ocrBoxes.find(b => {
           if (b === item) return false;
           const bBox = b.box || b;
-          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 350;
+          const bText = (b.text || '').trim();
+          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 240;
           const isSameBand = Math.abs(bBox.y - itemBox.y) < Math.max(itemBox.height, 25);
-          return isRight && isSameBand && /[A-Za-z0-9]{4,}/.test(b.text || '');
+          const looksLikeID = /^(?=[A-Za-z0-9/-]*\d)[A-Za-z0-9/-]{4,}$/.test(bText) &&
+            !UI_STOPWORDS.has(bText.toLowerCase()) &&
+            !COMPANY_INDICATORS.test(bText);
+          return isRight && isSameBand && looksLikeID;
         });
 
         if (adjacent) {
@@ -388,14 +443,14 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
 
   // --- 4a. 2D Spatial Form-Field Grounding for Hand-Filled Passbooks & Forms ---
   const PASSBOOK_FIELDS = [
-    { pattern: /\b(?:Name\s+Of\s+Account\s+Holder|Account\s+Holder(?:\s*Name)?|Customer\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240 },
-    { pattern: /\b(?:Father'?s?\/Husband'?s?\s+Name|Father'?s?\s+Name|Husband'?s?\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240 },
-    { pattern: /\bVillage\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
-    { pattern: /\bPost\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
-    { pattern: /\bPolice\s*Station\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
-    { pattern: /\bDistrict\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180 },
-    { pattern: /\b(?:Account\s*No|A\/c\s*No)\s*[:#-]?/i, tag: 'ACCOUNT_NUMBER', defaultW: 260 },
-    { pattern: /\b(?:Aadhar|Aadhaar)\s*No\s*[:#-]?/i, tag: 'AADHAAR', defaultW: 240 }
+    { pattern: /\b(?:Name\s+Of\s+Account\s+Holder|Account\s+Holder(?:\s*Name)?|Customer\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240, isValid: (t) => /^[A-Za-z][A-Za-z.'’\- ]{2,}$/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) },
+    { pattern: /\b(?:Father'?s?\/Husband'?s?\s+Name|Father'?s?\s+Name|Husband'?s?\s+Name)\s*[:#-]?/i, tag: 'NAME', defaultW: 240, isValid: (t) => /^[A-Za-z][A-Za-z.'’\- ]{2,}$/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) },
+    { pattern: /\bVillage\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180, isValid: (t) => /[A-Za-z]{3,}/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) && !COMPANY_INDICATORS.test(t) },
+    { pattern: /\bPost\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180, isValid: (t) => /[A-Za-z]{3,}/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) && !COMPANY_INDICATORS.test(t) },
+    { pattern: /\bPolice\s*Station\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180, isValid: (t) => /[A-Za-z]{3,}/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) && !COMPANY_INDICATORS.test(t) },
+    { pattern: /\bDistrict\s*[:#-]?/i, tag: 'ADDRESS', defaultW: 180, isValid: (t) => /[A-Za-z]{3,}/.test(t) && !UI_STOPWORDS.has(t.toLowerCase()) && !COMPANY_INDICATORS.test(t) },
+    { pattern: /\b(?:Account\s*No|A\/c\s*No)\s*[:#-]?/i, tag: 'ACCOUNT_NUMBER', defaultW: 260, isValid: (t) => /\d{4,}/.test(t) },
+    { pattern: /\b(?:Aadhar|Aadhaar)\s*No\s*[:#-]?/i, tag: 'AADHAAR', defaultW: 240, isValid: (t) => /\d{4,}/.test(t) }
   ];
 
   for (const item of ocrBoxes) {
@@ -403,13 +458,16 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
     for (const field of PASSBOOK_FIELDS) {
       if (field.pattern.test(itemText)) {
         const itemBox = item.box || item;
-        // Check if there is an OCR box directly to the right in the same horizontal band
+        // Check if there is an OCR box directly to the right in the same horizontal band.
+        // The adjacent box must plausibly contain the field's value for that tag (letters-only
+        // for names, digits for account/aadhaar numbers, never UI stopwords or company names).
         const adjacent = ocrBoxes.find(b => {
           if (b === item) return false;
           const bBox = b.box || b;
-          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 380;
+          const bText = (b.text || '').trim();
+          const isRight = bBox.x > itemBox.x && bBox.x < itemBox.x + itemBox.width + 240;
           const isSameBand = Math.abs(bBox.y - itemBox.y) < Math.max(itemBox.height, 25);
-          return isRight && isSameBand && (b.text || '').length >= 2;
+          return isRight && isSameBand && field.isValid(bText);
         });
 
         if (adjacent) {
@@ -459,26 +517,41 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
   }
 
   // --- 4c. Multi-Line Address Grounding (e.g. "Address: 23B-CB," and lines directly below) ---
-  const addrLabels = ocrBoxes.filter(b => /\b(?:Address|Residential\s*Address)\s*[:#-]?/i.test(b.text || ''));
+  // Build anchored label regexes from ADDRESS_LABEL_PHRASES.
+  // LABEL_WITH_SEP: label at line start followed by : # - (value on same line)
+  // LABEL_ONLY:     standalone short label with nothing else (value on next lines)
+  const _labelAlt = ADDRESS_LABEL_PHRASES.map(p => esc(p)).join("|");
+  const ADDRESS_LABEL_WITH_SEP_RE = new RegExp("^\\s*(?:" + _labelAlt + ")\\s*[:#-]\\s*(.*)$", "i");
+  const ADDRESS_LABEL_ONLY_RE = new RegExp("^\\s*(?:" + _labelAlt + ")\\s*$", "i");
+  const addrLabels = ocrBoxes.filter(b => {
+    const t = (b.text || "").trim();
+    return ADDRESS_LABEL_WITH_SEP_RE.test(t) || (ADDRESS_LABEL_ONLY_RE.test(t) && t.length <= 36);
+  });
   for (const labelItem of addrLabels) {
     const lBox = labelItem.box || labelItem;
     const lText = (labelItem.text || '').trim();
 
     // 1. Redact address content on the label line itself
-    const match = lText.match(/\b(?:Address|Residential\s*Address)\s*[:#-]?\s*(.*)/i);
+    // Use anchored regex to capture same-line value after the label separator.
+    // For standalone labels (no separator), no same-line value - handled by step 2.
+    const match = ADDRESS_LABEL_WITH_SEP_RE.exec(lText);
     if (match && match[1] && match[1].trim().length > 0) {
       const sub = computeSubBox(lBox, lText, lText.indexOf(match[1]), lText.length);
       boxesToRedact.push({ ...sub, text: match[1], tag: 'ADDRESS' });
     }
 
-    // 2. Find all subsequent lines located vertically below this address label (downwards within 160px)
+    // 2. Find subsequent lines located vertically below this address label (downwards within 160px).
+    // Narrow horizontal window (~40px left / ~60px right of the label's left edge) so unrelated
+    // right-side content is never dragged in; stop at lines that look like other labels/UI.
     const addressLines = ocrBoxes.filter(b => {
       if (b === labelItem) return false;
       const bBox = b.box || b;
+      const bText = (b.text || '').trim();
       const isBelow = bBox.y > lBox.y && bBox.y < lBox.y + 160;
-      const isAligned = bBox.x >= lBox.x - 40 && bBox.x <= lBox.x + lBox.width + 160;
-      const isNotAnotherLabel = !/\b(?:Date\s*of\s*Birth|Blood\s*Group|Organ\s*Donor|Validity|Son[\s/]*|Signature|Issue\s*Date|Holder)\b/i.test(b.text || '');
-      return isBelow && isAligned && isNotAnotherLabel;
+      const isAligned = bBox.x >= lBox.x - 40 && bBox.x <= lBox.x + 60;
+      const isNotAnotherLabel = !/\b(?:Date\s*of\s*Birth|Blood\s*Group|Organ\s*Donor|Validity|Son[\s/]*|Signature|Issue\s*Date|Holder|Mobile\s*(?:No\.?|Number)?|Phone(?:\s*No\.?)?|Email|PIN(?:\s*Code)?|Pincode|District|Village|State|Country|Name|Father'?s?\s*Name|Mother'?s?\s*Name|Husband'?s?\s*Name|Wife'?s?\s*Name|Account\s*(?:No\.?|Number)|IFSC|Aadhaar|PAN|DOB)\b/i.test(bText);
+      const isNotUI = !UI_STOPWORDS.has(bText.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, ''));
+      return isBelow && isAligned && isNotAnotherLabel && isNotUI;
     });
 
     for (const line of addressLines) {
@@ -490,10 +563,12 @@ export function findBoxesToRedact(ocrBoxes, redactedEntities, qrBoxes = []) {
     }
   }
 
-  // Catch address lines with Indian PIN codes or Cantonment (e.g. "...,DELHI,110028" or "DELHI CANTONMENT")
+  // Catch address lines with Indian PIN codes or Cantonment (e.g. "...,DELHI,110028" or "DELHI CANTONMENT").
+  // Gated on real address context (known city / PIN label / street-keyword multi-part address) so
+  // HSN codes, quantities, prices and other bare 6-digit numbers never trigger a whole-line blur.
   for (const item of ocrBoxes) {
     const itemText = (item.text || '').trim();
-    if (/\b(?:CANTONMENT|CANTT)\b/i.test(itemText) || /(?<!\d)\b[1-9]\d{2}\s?\d{3}\b(?!\d)/.test(itemText)) {
+    if (/\b(?:CANTONMENT|CANTT)\b/i.test(itemText) || hasIndianPINAddressContext(itemText)) {
       if (!/\b(?:Issued\s*by|Transport\s*Department|Government\s*of)\b/i.test(itemText)) {
         const bBox = item.box || item;
         const already = boxesToRedact.some(r => Math.abs(r.x - bBox.x) < 10 && Math.abs(r.y - bBox.y) < 10);

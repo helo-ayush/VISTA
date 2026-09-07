@@ -332,6 +332,39 @@ const COUNTRIES_LIST = [
 const COUNTRIES = COUNTRIES_LIST.map(esc).join('|');
 const COUNTRIES_SET = new Set(COUNTRIES_LIST.map(c => c.toLowerCase()));
 
+// Indian states / UTs used to gate uncapitalized "city + state" address matches
+const INDIAN_STATES_LIST = [
+  'uttar pradesh', 'madhya pradesh', 'himachal pradesh', 'andhra pradesh',
+  'west bengal', 'tamil nadu', 'maharashtra', 'karnataka', 'telangana',
+  'rajasthan', 'chhattisgarh', 'jharkhand', 'uttarakhand', 'gujarat',
+  'punjab', 'kerala', 'odisha', 'bihar', 'assam', 'delhi', 'goa', 'haryana'
+];
+const IN_STATES = INDIAN_STATES_LIST.join('|');
+
+// Locality keywords that strongly signal an Indian street/local address
+const LOCALITY_KEYWORD_RE = /\b(?:nagar|colony|sector|road|street|marg|layout|enclave|vihar|gali|chawl|gully|peth|chowk)\b/i;
+
+// Alternation of known Indian/global cities (longest first) for case-insensitive context gating
+const KNOWN_CITIES_REGEX = [...KNOWN_CITIES_SET].sort((a, b) => b.length - a.length).map(esc).join('|');
+
+/**
+ * True when `text` contains a 6-digit Indian PIN with real address context:
+ * a known Indian city right before it, a PIN/Pincode/Postal-code label, or a
+ * comma-separated multi-part address containing street/locality keywords.
+ * Used to gate whole-line address redaction so HSN codes, quantities and
+ * prices containing 6-digit numbers are never treated as addresses.
+ */
+export function hasIndianPINAddressContext(text) {
+  if (!text || !/\b[1-9]\d{2}\s?\d{3}\b/.test(text)) return false;
+  const cityPin = new RegExp(String.raw`\b(?:${KNOWN_CITIES_REGEX})\b(?:\s*,\s*(?:${IN_STATES}))?\s*,?\s*[1-9]\d{2}\s?\d{3}\b`, 'gi');
+  if (cityPin.test(text)) return true;
+  if (/\b(?:pin(?:\s*code)?|pincode|postal(?:\s*code)?)\s*[:#-]?\s*[1-9]\d{2}\s?\d{3}\b/i.test(text)) return true;
+  const parts = String(text).split(',');
+  const hasLocalityKeyword = parts.some(p => LOCALITY_KEYWORD_RE.test(p));
+  const pinPart = parts.some(p => /\b[1-9]\d{2}\s?\d{3}\b/.test(p));
+  return hasLocalityKeyword && pinPart;
+}
+
 const UPGRADED_ADDRESS_PATTERNS = [
   // A. Number-first streets
   new RegExp(
@@ -385,14 +418,20 @@ const UPGRADED_ADDRESS_PATTERNS = [
   new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2}\s+(?:${US_STATES})\s+\d{5}(?:-\d{4})?\b`, 'g'),
   new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2},\s*(?:${US_STATES})\b`, 'g'),
   new RegExp(String.raw`\b[A-Z][a-zA-Z.'\-]+(?:\s+[A-Z][a-zA-Z.'\-]+){0,2},\s*(?:${COUNTRIES})\b`, 'g'),
-  /\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2}\s+\d{6}\b/g,
+  // Indian PIN: a 6-digit number is an address ONLY with real address context — a known
+  // Indian city right before it (e.g. "kolkata 700156", "Lucknow, Uttar Pradesh 226010",
+  // "Greater Noida, Uttar Pradesh 201310"). Deterministic: city + PIN is a syntactic,
+  // high-precision signal. Bare 6-digit numbers (HSN codes, quantities, prices) never match.
+  Object.assign(
+    new RegExp(String.raw`\b(?:${KNOWN_CITIES_REGEX})\b(?:\s*,\s*(?:${IN_STATES}))?\s*,?\s*[1-9]\d{2}\s?\d{3}\b`, 'gi'),
+    { isDeterministic: true }
+  ),
 
   // J. Post codes & PIN codes
   /\b(?:zip(?:\s*code)?|pin(?:\s*code)?|pincode|postal(?:\s*code)?)\s*[:#-]?\s*[A-Z0-9][A-Z0-9-]{2,9}\b/gi,
   /\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/g, 
   /\b[ABCEGHJ-NPRSTVXY]\d[A-Z][ -]?\d[A-Z]\d\b/g,         
-  /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,  
-  /(?<![-_#A-Za-z0-9/])\b[1-9]\d{2}\s?\d{3}\b(?![_#A-Za-z0-9/-])/g,                              
+  /\b(?!(?:19|20)\d{2}\b)\d{4}[ \t]+(?=[A-Z][a-zA-Z])/g,
 
   // K. GPS Coordinates
   /[-+]?\d{1,2}\.\d{4,}\s*°?\s*[NSns]?\s*[,;]\s*[-+]?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?/g,
@@ -400,10 +439,27 @@ const UPGRADED_ADDRESS_PATTERNS = [
   // L. Lowercase Indian Localities (meera nath nagar, juhu gully, hsr layout)
   /\b[a-zA-Z0-9.-]{2,20}\s+(?:nagar|colony|society|layout|vihar|enclave|gali|chawl|gully|peth|chowk)\b/gi,
 
-  // M. Uncapitalized Indian City + State pairs (lucknow uttar pradesh, shahdara delhi)
+  // M. Uncapitalized Indian City + State pairs (lucknow uttar pradesh, gomti nagar, lucknow)
+  // Gated: the token immediately before the state must be a known Indian city, OR the match
+  // must contain a digit/comma/locality keyword. Plain phrases like "shop in delhi" or
+  // "stay in kerala" never qualify.
   (() => {
-    const IN_STATES = 'maharashtra|delhi|karnataka|tamil nadu|telangana|uttar pradesh|gujarat|rajasthan|west bengal|bihar|madhya pradesh|haryana|punjab|kerala|andhra pradesh|odisha|jharkhand|chhattisgarh|assam|goa|himachal pradesh|uttarakhand';
-    return new RegExp(String.raw`\b(?:[a-zA-Z\-]+\s+){1,3}(?:${IN_STATES})\b`, 'gi');
+    const pattern = new RegExp(String.raw`\b(?:[a-zA-Z\-]+\s+){1,3}(?:${IN_STATES})\b`, 'gi');
+    pattern.validator = (matchStr) => {
+      if (/[\d,]/.test(matchStr)) return true;             // digit or comma in the match
+      if (LOCALITY_KEYWORD_RE.test(matchStr)) return true; // nagar/colony/sector/road/street/...
+      const lower = matchStr.trim().toLowerCase();
+      const state = INDIAN_STATES_LIST.find(st => {
+        if (!lower.endsWith(st)) return false;
+        const prevCh = lower[lower.length - st.length - 1];
+        return lower.length === st.length || /[\s,]/.test(prevCh);
+      });
+      if (!state) return false;
+      const beforeTokens = lower.slice(0, lower.length - state.length).trim().split(/[\s,]+/).filter(Boolean);
+      const prevToken = beforeTokens[beforeTokens.length - 1];
+      return typeof prevToken === 'string' && KNOWN_CITIES_SET.has(prevToken);
+    };
+    return pattern;
   })()
 ];
 
@@ -460,14 +516,41 @@ function extractNERSpans(rawResults, line) {
     if (meaningfulTokens.length === 0) continue;
 
     const firstClean = meaningfulTokens[0].word.replace(/^##/, '').toLowerCase();
-    const lastClean = meaningfulTokens[meaningfulTokens.length - 1].word.replace(/^##/, '').toLowerCase();
 
     let firstIdx = findWordStart(lineLower, firstClean, searchIdx);
     if (firstIdx === -1) continue;
 
-    let lastIdx = lineLower.indexOf(lastClean, firstIdx);
-    if (lastIdx === -1) lastIdx = firstIdx;
-    let endIdx = lastIdx + lastClean.length;
+    // Reconstruct the full entity substring by matching tokens SEQUENTIALLY, advancing a
+    // cursor through each token in order: subword (##) fragments must continue immediately,
+    // whole-word tokens may be separated by whitespace/punctuation. This prevents the last
+    // subword fragment (e.g. "h" of "des ##hm ##uk ##h") from matching inside an earlier
+    // word and truncating multi-subword surnames like "Sarah Deshmukh" down to "Sarah".
+    let cursor = firstIdx + firstClean.length;
+    let matched = true;
+    for (let i = 1; i < meaningfulTokens.length && matched; i++) {
+      const tok = meaningfulTokens[i];
+      const frag = tok.word.replace(/^##/, '').toLowerCase();
+      if (tok.word.startsWith('##')) {
+        // Subword fragment: must continue immediately (no gap allowed)
+        if (lineLower.startsWith(frag, cursor)) {
+          cursor += frag.length;
+        } else {
+          matched = false;
+        }
+      } else {
+        // Whole-word token: allow whitespace / punctuation separators in between
+        let j = cursor;
+        while (j < lineLower.length && j - cursor <= 12 && /[^\w]/.test(lineLower[j])) {
+          j++;
+        }
+        if (lineLower.startsWith(frag, j)) {
+          cursor = j + frag.length;
+        } else {
+          matched = false;
+        }
+      }
+    }
+    let endIdx = matched ? cursor : firstIdx + firstClean.length;
 
     if (isName) {
       const remainder = line.substring(endIdx);
@@ -708,7 +791,10 @@ export async function redactTextContent(rawText, onProgress = null) {
       if (NOT_CITY_PREFIX.test(matchStr) && /\d{5,6}$/.test(matchStr)) {
         continue;
       }
-      addSpan(m.index, m.index + m[0].length, 'ADDRESS');
+      if (pat.validator && !pat.validator(matchStr)) {
+        continue;
+      }
+      addSpan(m.index, m.index + m[0].length, 'ADDRESS', !!pat.isDeterministic);
     }
   }
 
